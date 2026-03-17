@@ -32,6 +32,10 @@ export class User {
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean;
 
+  /** Si es `true`, el usuario debe cambiar su contraseña en el próximo inicio de sesión. */
+  @Column({ name: 'must_change_password', type: 'boolean', default: false })
+  mustChangePassword: boolean;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
