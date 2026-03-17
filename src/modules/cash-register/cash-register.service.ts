@@ -40,41 +40,55 @@ export class CashRegisterService {
   ) {}
 
   /**
-   * Obtiene la sesión activa del día o la crea si no existe.
+   * Obtiene la sesión de caja ABIERTA (independientemente del día calendario)
+   * o la crea si no existe ninguna. Implementa el modelo de "Jornada Comercial":
+   * si hay una caja abierta del lunes y la venta ocurre a las 00:30 del martes,
+   * la venta entra en la caja del lunes.
+   *
    * Debe llamarse dentro de un QueryRunner activo.
-   * Lanza ServiceUnavailableException si la caja ya fue cerrada.
+   * Lanza ServiceUnavailableException si la jornada comercial ya fue cerrada.
    */
   async getOrCreateActiveSession(queryRunner: QueryRunner, userId: string): Promise<CashSession> {
-    const today = this.getToday();
-
+    // Lock global para evitar race conditions al crear una nueva sesión
     await queryRunner.query(`SELECT pg_advisory_xact_lock(abs(hashtext($1)))`, [
-      `cash_session:${today}`,
+      `cash_session:open`,
     ]);
 
-    const existing = await queryRunner.manager.findOne(CashSession, {
-      where: { date: today },
+    // Buscar LA ÚLTIMA CAJA ABIERTA (modelo Jornada Comercial)
+    const openSession = await queryRunner.manager.findOne(CashSession, {
+      where: { status: CashSessionStatus.OPEN },
+      order: { openedAt: 'DESC' } as any,
       lock: { mode: 'pessimistic_write' },
     });
 
-    if (existing?.status === CashSessionStatus.CLOSED) {
+    if (openSession) {
+      return openSession;
+    }
+
+    // No hay caja abierta: crear una nueva para la fecha comercial vigente
+    const commercialDate = this.getCommercialDate();
+
+    // Verificar si ya existe una sesión cerrada para esta fecha comercial
+    const closedSession = await queryRunner.manager.findOne(CashSession, {
+      where: { date: commercialDate },
+      lock: { mode: 'pessimistic_write' },
+    });
+
+    if (closedSession?.status === CashSessionStatus.CLOSED) {
       throw new ServiceUnavailableException(
-        `La caja del ${today} ya fue cerrada. ` +
-          'No se pueden registrar más operaciones en este día.',
+        `La caja de la jornada del ${commercialDate} ya fue cerrada. ` +
+          'No se pueden registrar más operaciones.',
       );
     }
 
-    if (existing) {
-      return existing;
-    }
-
     const session = queryRunner.manager.create(CashSession, {
-      date: today,
+      date: commercialDate,
       status: CashSessionStatus.OPEN,
       openedByUserId: userId,
     });
 
     const saved = await queryRunner.manager.save(CashSession, session);
-    this.logger.log(`Sesión de caja abierta automáticamente para ${today}`);
+    this.logger.log(`Sesión de caja abierta automáticamente para jornada del ${commercialDate}`);
     return saved;
   }
 
@@ -105,15 +119,43 @@ export class CashRegisterService {
     cashExpected: number;
     transferTotal: number;
     dayTotal: number;
-    transactions: Transaction[];
+    transactions: {
+      id: string;
+      type: string;
+      referenceId: string;
+      concept: string;
+      amountCash: string;
+      amountTransfer: string;
+      createdAt: string;
+      customerName: string | null;
+    }[];
     isOpen: boolean;
   }> {
-    const targetDate = date ?? this.getToday();
+    let session: CashSession | null;
 
-    const session = await this.sessionRepo.findOne({
-      where: { date: targetDate },
-      relations: ['openedByUser', 'closedByUser'],
-    });
+    if (date) {
+      // Consulta histórica: buscar por fecha específica
+      session = await this.sessionRepo.findOne({
+        where: { date },
+        relations: ['openedByUser', 'closedByUser'],
+      });
+    } else {
+      // Consulta actual: buscar la última CAJA ABIERTA (Jornada Comercial)
+      session = await this.sessionRepo.findOne({
+        where: { status: CashSessionStatus.OPEN },
+        order: { openedAt: 'DESC' } as any,
+        relations: ['openedByUser', 'closedByUser'],
+      });
+
+      // Si no hay caja abierta, mostrar la última sesión cerrada
+      if (!session) {
+        session = await this.sessionRepo.findOne({
+          where: { status: CashSessionStatus.CLOSED },
+          order: { openedAt: 'DESC' } as any,
+          relations: ['openedByUser', 'closedByUser'],
+        });
+      }
+    }
 
     if (!session) {
       return {
@@ -138,11 +180,26 @@ export class CashRegisterService {
     const cashExpected = parseFloat(totals[0]?.cash_expected ?? '0');
     const transferTotal = parseFloat(totals[0]?.transfer_total ?? '0');
 
-    const transactions = await this.transactionRepo.find({
-      where: { cashSessionId: session.id },
-      relations: ['createdByUser'],
-      order: { createdAt: 'DESC' },
-    });
+    // LEFT JOIN con sales (customerName) y users (empleado que registró el movimiento)
+    const transactions = await this.dataSource.query(
+      `SELECT
+         t.id,
+         t.type,
+         t.reference_id        AS "referenceId",
+         t.concept,
+         t.amount_cash         AS "amountCash",
+         t.amount_transfer     AS "amountTransfer",
+         t.created_at          AS "createdAt",
+         s.customer_name       AS "customerName",
+         u.full_name           AS "createdByFullName",
+         u.username            AS "createdByUsername"
+       FROM transactions t
+       LEFT JOIN sales s ON s.id = t.reference_id AND t.type = 'sale'
+       LEFT JOIN users u ON u.id = t.created_by_user_id
+       WHERE t.cash_session_id = $1
+       ORDER BY t.created_at DESC`,
+      [session.id],
+    );
 
     return {
       session,
@@ -169,20 +226,16 @@ export class CashRegisterService {
     difference: number;
     balances: 'exact' | 'surplus' | 'shortage';
   }> {
-    const today = this.getToday();
-
+    // Buscar la última caja ABIERTA (modelo Jornada Comercial)
     const session = await this.sessionRepo.findOne({
-      where: { date: today },
+      where: { status: CashSessionStatus.OPEN },
+      order: { openedAt: 'DESC' } as any,
     });
 
     if (!session) {
       throw new NotFoundException(
-        'No existe una sesión de caja abierta para hoy. ' + 'No hubo operaciones registradas.',
+        'No existe una sesión de caja abierta. No hubo operaciones registradas.',
       );
-    }
-
-    if (session.status === CashSessionStatus.CLOSED) {
-      throw new ConflictException('La caja de hoy ya fue cerrada anteriormente.');
     }
 
     const totals = await this.dataSource.query<{ cash_expected: string; transfer_total: string }[]>(
@@ -208,7 +261,7 @@ export class CashRegisterService {
     await this.sessionRepo.save(session);
 
     this.logger.log(
-      `CIERRE Z — ${today} por ${user.username}. ` +
+      `CIERRE Z — jornada ${session.date} por ${user.username}. ` +
         `Esperado: $${cashExpected} | Contado: $${dto.cashCounted} | ` +
         `Diferencia: ${difference >= 0 ? '+' : ''}$${difference}`,
     );
@@ -225,10 +278,32 @@ export class CashRegisterService {
     };
   }
 
-  /** Retorna la fecha actual en zona horaria Argentina (YYYY-MM-DD). */
-  private getToday(): string {
-    return new Date().toLocaleDateString('en-CA', {
-      timeZone: 'America/Argentina/Buenos_Aires',
-    });
+  /**
+   * Retorna la fecha comercial vigente en zona horaria Argentina (YYYY-MM-DD).
+   * Implementa el "Cutoff Time": cualquier hora entre las 00:00 y las 03:59 AM
+   * pertenece comercialmente al día anterior.
+   */
+  private getCommercialDate(): string {
+    const CUTOFF_HOUR = 4;
+    const TZ = 'America/Argentina/Buenos_Aires';
+
+    const now = new Date();
+
+    // Extraer hora actual en Argentina usando Intl (más confiable que toLocaleString)
+    const hourParts = new Intl.DateTimeFormat('en-US', {
+      timeZone: TZ,
+      hour: 'numeric',
+      hour12: false,
+    }).formatToParts(now);
+    const currentHour = parseInt(hourParts.find((p) => p.type === 'hour')?.value ?? '12', 10);
+
+    if (currentHour < CUTOFF_HOUR) {
+      // Madrugada: pertenece al día comercial anterior
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      return yesterday.toLocaleDateString('en-CA', { timeZone: TZ });
+    }
+
+    return now.toLocaleDateString('en-CA', { timeZone: TZ });
   }
 }
