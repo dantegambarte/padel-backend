@@ -24,13 +24,7 @@ export class AuthService {
     private readonly configService: ConfigService,
   ) {}
 
-  /**
-   * Valida credenciales. Retorna el usuario sin passwordHash,
-   * o lanza UnauthorizedException.
-   *
-   * Usamos un mensaje genérico intencionalmente para no revelar
-   * si el usuario existe o si la contraseña es incorrecta.
-   */
+  /** Valida credenciales y retorna el usuario sin passwordHash, o lanza UnauthorizedException. */
   async validateUser(username: string, password: string): Promise<User> {
     const user = await this.userRepo.findOne({
       where: { username: username.toLowerCase().trim() },
@@ -53,9 +47,7 @@ export class AuthService {
     return user;
   }
 
-  /**
-   * Genera el par de tokens (access + refresh) tras un login exitoso.
-   */
+  /** Genera el par de tokens (access + refresh) tras un login exitoso. */
   async login(loginDto: LoginDto) {
     const user = await this.validateUser(loginDto.username, loginDto.password);
 
@@ -81,10 +73,7 @@ export class AuthService {
     };
   }
 
-  /**
-   * Firma un par access + refresh token para el payload dado.
-   * Centraliza la lógica de firma para reutilizarla en login y refresh.
-   */
+  /** Firma un par access + refresh token para el payload dado. */
   private async signTokenPair(payload: JwtPayload): Promise<[string, string]> {
     return Promise.all([
       this.jwtService.signAsync(payload, {
@@ -100,11 +89,7 @@ export class AuthService {
     ]);
   }
 
-  /**
-   * Renueva el par de tokens usando el refresh token actual (rotación).
-   * Emite un nuevo accessToken Y un nuevo refreshToken, descartando el anterior.
-   * El Angular debe almacenar ambos tokens retornados en cada llamada.
-   */
+  /** Renueva el par de tokens usando el refresh token (rotación). */
   async refreshToken(refreshToken: string) {
     try {
       const payload = await this.jwtService.verifyAsync<JwtPayload>(refreshToken, {
@@ -112,7 +97,6 @@ export class AuthService {
         algorithms: ['HS256'],
       });
 
-      // Verificamos que el usuario siga activo al momento del refresh
       const user = await this.userRepo.findOne({
         where: { id: payload.sub },
         select: ['id', 'username', 'fullName', 'role', 'isActive'],
@@ -128,8 +112,6 @@ export class AuthService {
         role: user.role,
       };
 
-      // Rotación: se emite un nuevo par completo. El refresh token anterior
-      // queda huérfano y el cliente debe reemplazarlo.
       const [newAccessToken, newRefreshToken] = await this.signTokenPair(newPayload);
 
       return { accessToken: newAccessToken, refreshToken: newRefreshToken };
@@ -140,9 +122,7 @@ export class AuthService {
     }
   }
 
-  /**
-   * Retorna el perfil del usuario autenticado (sin datos sensibles).
-   */
+  /** Retorna el perfil del usuario autenticado sin datos sensibles. */
   async getProfile(userId: string) {
     const user = await this.userRepo.findOne({
       where: { id: userId },

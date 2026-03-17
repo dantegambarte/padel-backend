@@ -25,14 +25,10 @@ export class ProductsService {
     private readonly categoryRepo: Repository<ProductCategory>,
   ) {}
 
-  // ───────────────────────────────────────────────────────────────────────────
-  //  QUERIES
-  // ───────────────────────────────────────────────────────────────────────────
-
+  /** Retorna productos filtrados por categoría, nombre o stock bajo. */
   async findAll(query: QueryProductsDto): Promise<Product[]> {
     const where: any = {};
 
-    // Por defecto traemos solo activos, a menos que se pida lo contrario
     if (query.onlyActive !== false) {
       where.isActive = true;
     }
@@ -41,7 +37,6 @@ export class ProductsService {
       where.categoryId = query.categoryId;
     }
 
-    // Búsqueda por nombre (case-insensitive)
     if (query.search) {
       where.name = ILike(`%${query.search}%`);
     }
@@ -52,8 +47,6 @@ export class ProductsService {
       order: { name: 'ASC' },
     });
 
-    // Filtro de stock bajo (stock < minStock) — se aplica en memoria
-    // porque comparar dos columnas entre sí con TypeORM básico requiere QB
     if (query.lowStock) {
       return products.filter((p) => p.stock < p.minStock);
     }
@@ -61,11 +54,7 @@ export class ProductsService {
     return products;
   }
 
-  /**
-   * Productos destacados (isFeatured = true).
-   * Usados como botones de acceso rápido en el modal de Agenda.
-   * Solo retorna activos con stock > 0.
-   */
+  /** Retorna los productos destacados activos para acceso rápido en el modal de agenda. */
   async findFeatured(): Promise<Product[]> {
     return this.productRepo.find({
       where: { isFeatured: true, isActive: true },
@@ -74,12 +63,8 @@ export class ProductsService {
     });
   }
 
-  /**
-   * Productos con stock por debajo del mínimo.
-   * Consumido por el Dashboard del Empleado para mostrar alertas.
-   */
+  /** Retorna los productos con stock por debajo del mínimo configurado. */
   async findLowStock(): Promise<Product[]> {
-    // QueryBuilder para comparar dos columnas entre sí
     return this.productRepo
       .createQueryBuilder('product')
       .leftJoinAndSelect('product.category', 'category')
@@ -89,6 +74,7 @@ export class ProductsService {
       .getMany();
   }
 
+  /** Retorna un producto por ID con su categoría. */
   async findOne(id: string): Promise<Product> {
     const product = await this.productRepo.findOne({
       where: { id },
@@ -102,16 +88,13 @@ export class ProductsService {
     return product;
   }
 
+  /** Retorna todas las categorías de productos. */
   findAllCategories(): Promise<ProductCategory[]> {
     return this.categoryRepo.find({ order: { name: 'ASC' } });
   }
 
-  // ───────────────────────────────────────────────────────────────────────────
-  //  MUTACIONES
-  // ───────────────────────────────────────────────────────────────────────────
-
+  /** Crea un producto validando que la categoría exista si se especifica. */
   async create(dto: CreateProductDto): Promise<Product> {
-    // Verificar categoría si se especificó
     if (dto.categoryId) {
       await this.validateCategory(dto.categoryId);
     }
@@ -133,6 +116,7 @@ export class ProductsService {
     return this.findOne(saved.id);
   }
 
+  /** Actualiza un producto. Los ajustes de stock solo se permiten desde este endpoint. */
   async update(id: string, dto: UpdateProductDto): Promise<Product> {
     const product = await this.findOne(id);
 
@@ -148,8 +132,6 @@ export class ProductsService {
     if (dto.isFeatured !== undefined) product.isFeatured = dto.isFeatured;
     if (dto.isActive !== undefined) product.isActive = dto.isActive;
 
-    // Ajuste manual de stock (reposición). Los decrementos se hacen
-    // internamente vía transacciones de Bookings y POS, nunca por este endpoint.
     if (dto.stock !== undefined) {
       if (dto.stock < 0) {
         throw new BadRequestException('El stock no puede ser negativo.');
@@ -165,11 +147,7 @@ export class ProductsService {
     return this.findOne(saved.id);
   }
 
-  /**
-   * Baja lógica: isActive = false.
-   * No se elimina físicamente para preservar el historial de ventas
-   * (SaleItems y BookingItems referencian este producto).
-   */
+  /** Desactiva un producto (baja lógica) para preservar el historial de ventas. */
   async remove(id: string): Promise<void> {
     const product = await this.findOne(id);
 
@@ -182,10 +160,7 @@ export class ProductsService {
     this.logger.log(`Producto desactivado: "${product.name}"`);
   }
 
-  // ───────────────────────────────────────────────────────────────────────────
-  //  PRIVADOS
-  // ───────────────────────────────────────────────────────────────────────────
-
+  /** Verifica que una categoría exista por ID. */
   private async validateCategory(categoryId: string): Promise<void> {
     const category = await this.categoryRepo.findOne({
       where: { id: categoryId },
@@ -196,10 +171,7 @@ export class ProductsService {
     }
   }
 
-  /**
-   * Resumen estadístico para el módulo de Productos.
-   * Consumido por el componente de inventario del frontend.
-   */
+  /** Retorna estadísticas de inventario: total, destacados, bajo stock y valor total. */
   async getSummary() {
     const [total, featured, lowStockCount, totalValue] = await Promise.all([
       this.productRepo.count({ where: { isActive: true } }),

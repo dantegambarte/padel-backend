@@ -23,6 +23,7 @@ export class UsersService {
     private readonly userRepo: Repository<User>,
   ) {}
 
+  /** Retorna todos los usuarios sin passwordHash. */
   async findAll(): Promise<Omit<User, 'passwordHash'>[]> {
     return this.userRepo.find({
       select: ['id', 'username', 'fullName', 'role', 'isActive', 'createdAt'],
@@ -30,6 +31,7 @@ export class UsersService {
     });
   }
 
+  /** Retorna un usuario por ID sin passwordHash. */
   async findOne(id: string): Promise<Omit<User, 'passwordHash'>> {
     const user = await this.userRepo.findOne({
       where: { id },
@@ -43,8 +45,8 @@ export class UsersService {
     return user;
   }
 
+  /** Crea un usuario con contraseña hasheada y valida unicidad del username. */
   async create(dto: CreateUserDto): Promise<Omit<User, 'passwordHash'>> {
-    // Verificar username único
     const existing = await this.userRepo.findOne({
       where: { username: dto.username.toLowerCase().trim() },
     });
@@ -66,11 +68,11 @@ export class UsersService {
     const saved = await this.userRepo.save(user);
     this.logger.log(`Usuario creado: ${saved.username} (${saved.role})`);
 
-    // Retornar sin passwordHash
     const { passwordHash: _, ...result } = saved;
     return result as Omit<User, 'passwordHash'>;
   }
 
+  /** Actualiza parcialmente un usuario. No permite que el usuario se desactive a sí mismo. */
   async update(
     id: string,
     dto: UpdateUserDto,
@@ -82,7 +84,6 @@ export class UsersService {
       throw new NotFoundException(`Usuario con ID ${id} no encontrado.`);
     }
 
-    // No se puede desactivar al propio usuario
     if (dto.isActive === false && id === requestingUserId) {
       throw new ForbiddenException('No podés desactivar tu propia cuenta.');
     }
@@ -109,10 +110,7 @@ export class UsersService {
     return result as Omit<User, 'passwordHash'>;
   }
 
-  /**
-   * No eliminamos usuarios físicamente para mantener la auditoría.
-   * En cambio, los desactivamos.
-   */
+  /** Desactiva un usuario (baja lógica). Protege al último administrador del sistema. */
   async deactivate(id: string, requestingUserId: string): Promise<void> {
     if (id === requestingUserId) {
       throw new ForbiddenException('No podés desactivar tu propia cuenta.');
@@ -124,7 +122,6 @@ export class UsersService {
       throw new NotFoundException(`Usuario con ID ${id} no encontrado.`);
     }
 
-    // El admin principal (primer admin) no puede ser desactivado
     if (user.role === UserRole.ADMIN) {
       const adminCount = await this.userRepo.count({
         where: { role: UserRole.ADMIN, isActive: true },

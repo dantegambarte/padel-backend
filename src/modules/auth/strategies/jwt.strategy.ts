@@ -7,16 +7,14 @@ import { Repository } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
 
 export interface JwtPayload {
-  sub: string; // user.id
+  sub: string;
   username: string;
   role: string;
 }
 
 /**
- * Valida el JWT en cada request protegido.
- * Carga el usuario completo desde la DB para asegurar que sigue
- * activo (un empleado desactivado no puede seguir operando aunque
- * su token aún no haya expirado).
+ * Estrategia JWT de Passport. Valida el token y carga el usuario desde la DB
+ * para verificar que sigue activo en cada request protegido.
  */
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
@@ -32,6 +30,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     });
   }
 
+  /** Retorna el usuario autenticado o lanza UnauthorizedException si está inactivo. */
   async validate(payload: JwtPayload): Promise<User> {
     const user = await this.userRepo.findOne({
       where: { id: payload.sub },

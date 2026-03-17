@@ -10,13 +10,13 @@ export class SystemConfigService {
     private readonly configRepo: Repository<SystemConfig>,
   ) {}
 
-  /** Retorna todas las claves como array [{ key, value }] */
+  /** Retorna todas las claves de configuración como array `[{ key, value }]`. */
   async findAll(): Promise<{ key: string; value: string }[]> {
     const configs = await this.configRepo.find();
     return configs.map((cfg) => ({ key: cfg.key, value: cfg.value }));
   }
 
-  /** Helper interno: retorna objeto plano { key: value } */
+  /** Retorna la configuración como mapa `{ key: value }` para uso interno. */
   private async findAllAsMap(): Promise<Record<string, string>> {
     const configs = await this.configRepo.find();
     return configs.reduce(
@@ -28,6 +28,7 @@ export class SystemConfigService {
     );
   }
 
+  /** Retorna el valor de una clave de configuración. */
   async findByKey(key: string): Promise<string> {
     const config = await this.configRepo.findOne({ where: { key } });
     if (!config) {
@@ -36,6 +37,7 @@ export class SystemConfigService {
     return config.value;
   }
 
+  /** Actualiza el valor de una clave de configuración. */
   async update(key: string, value: string): Promise<SystemConfig> {
     const config = await this.configRepo.findOne({ where: { key } });
     if (!config) {
@@ -45,10 +47,8 @@ export class SystemConfigService {
     return this.configRepo.save(config);
   }
 
-  /** Actualización masiva (para el formulario de Configuración del prototipo) */
+  /** Actualiza múltiples claves en una sola operación. */
   async bulkUpdate(updates: Record<string, string>): Promise<{ key: string; value: string }[]> {
-    // Si el frontend envía un objeto vacío (sin cambios detectados), devolvemos
-    // el estado actual sin tocar la BD. Evita el error 400 al guardar sin modificar.
     const entries = Object.entries(updates ?? {});
     if (entries.length === 0) {
       return this.findAll();
@@ -57,7 +57,7 @@ export class SystemConfigService {
     return this.findAll();
   }
 
-  /** Helper para obtener precios (usado internamente por BookingsService) */
+  /** Retorna los precios estándar y profesor (usado internamente por BookingsService). */
   async getPrices(): Promise<{ standard: number; professor: number }> {
     const all = await this.findAllAsMap();
     return {

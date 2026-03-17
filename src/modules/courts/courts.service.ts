@@ -11,6 +11,7 @@ export class CourtsService {
     private readonly courtRepo: Repository<Court>,
   ) {}
 
+  /** Retorna todas las canchas, opcionalmente solo las activas. */
   findAll(onlyActive = false): Promise<Court[]> {
     return this.courtRepo.find({
       where: onlyActive ? { isActive: true } : {},
@@ -18,6 +19,7 @@ export class CourtsService {
     });
   }
 
+  /** Retorna una cancha por ID. */
   async findOne(id: string): Promise<Court> {
     const court = await this.courtRepo.findOne({ where: { id } });
     if (!court) {
@@ -26,6 +28,7 @@ export class CourtsService {
     return court;
   }
 
+  /** Crea una cancha validando unicidad de nombre. */
   async create(dto: CreateCourtDto): Promise<Court> {
     const existing = await this.courtRepo.findOne({ where: { name: dto.name } });
     if (existing) {
@@ -35,6 +38,7 @@ export class CourtsService {
     return this.courtRepo.save(court);
   }
 
+  /** Actualiza parcialmente una cancha. */
   async update(id: string, dto: UpdateCourtDto): Promise<Court> {
     const court = await this.findOne(id);
     Object.assign(court, dto);
