@@ -15,6 +15,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiParam } from '@nestjs/swagger'
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -57,6 +58,18 @@ export class UsersController {
     @CurrentUser('id') requestingUserId: string,
   ) {
     return this.usersService.update(id, updateUserDto, requestingUserId);
+  }
+
+  @Patch(':id/reset-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Restablecer la contraseña de un usuario (solo Admin)' })
+  @ApiParam({ name: 'id', type: 'string', format: 'uuid' })
+  resetPassword(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ResetPasswordDto,
+    @CurrentUser('id') requestingUserId: string,
+  ) {
+    return this.usersService.resetPassword(id, dto, requestingUserId);
   }
 
   @Delete(':id')
