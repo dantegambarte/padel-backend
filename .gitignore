@@ -1,0 +1,25 @@
+# Dependencias
+node_modules/
+
+# Build
+dist/
+
+# Variables de entorno (NUNCA commitear)
+.env
+.env.local
+.env.production
+
+# Logs
+*.log
+logs/
+
+# TypeScript
+*.js.map
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
