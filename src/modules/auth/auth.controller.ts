@@ -1,8 +1,9 @@
-import { Controller, Post, Get, Body, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth, ApiBody } from '@nestjs/swagger';
+import { Controller, Post, Get, Patch, Body, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { ChangeOwnPasswordDto } from './dto/change-own-password.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
@@ -58,5 +59,23 @@ export class AuthController {
   @ApiOperation({ summary: 'Obtener perfil del usuario autenticado' })
   async getProfile(@CurrentUser() user: User) {
     return this.authService.getProfile(user.id);
+  }
+
+  /**
+   * PATCH /api/v1/auth/me/password
+   * Permite a cualquier usuario autenticado cambiar su propia contraseña.
+   * Requiere la contraseña actual para verificar identidad.
+   * Limpia el flag `mustChangePassword` al completar.
+   */
+  @Patch('me/password')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Cambiar contraseña propia' })
+  async changeOwnPassword(
+    @CurrentUser('id') userId: string,
+    @Body() dto: ChangeOwnPasswordDto,
+  ) {
+    return this.authService.changeOwnPassword(userId, dto);
   }
 }

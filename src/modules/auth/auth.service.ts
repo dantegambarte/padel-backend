@@ -1,7 +1,7 @@
 import {
   Injectable,
   UnauthorizedException,
-  InternalServerErrorException,
+  BadRequestException,
   Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -11,7 +11,10 @@ import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { User } from '../users/entities/user.entity';
 import { LoginDto } from './dto/login.dto';
+import { ChangeOwnPasswordDto } from './dto/change-own-password.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
+
+const BCRYPT_ROUNDS = 10;
 
 @Injectable()
 export class AuthService {
@@ -28,7 +31,7 @@ export class AuthService {
   async validateUser(username: string, password: string): Promise<User> {
     const user = await this.userRepo.findOne({
       where: { username: username.toLowerCase().trim() },
-      select: ['id', 'username', 'fullName', 'role', 'isActive', 'passwordHash'],
+      select: ['id', 'username', 'fullName', 'role', 'isActive', 'mustChangePassword', 'passwordHash'],
     });
 
     if (!user) {
@@ -69,6 +72,7 @@ export class AuthService {
         username: user.username,
         fullName: user.fullName,
         role: user.role,
+        mustChangePassword: user.mustChangePassword,
       },
     };
   }
@@ -126,7 +130,7 @@ export class AuthService {
   async getProfile(userId: string) {
     const user = await this.userRepo.findOne({
       where: { id: userId },
-      select: ['id', 'username', 'fullName', 'role', 'isActive', 'createdAt'],
+      select: ['id', 'username', 'fullName', 'role', 'isActive', 'mustChangePassword', 'createdAt'],
     });
 
     if (!user) {
@@ -134,5 +138,41 @@ export class AuthService {
     }
 
     return user;
+  }
+
+  /**
+   * Cambia la contraseña del usuario autenticado.
+   * Verifica la contraseña actual antes de aplicar el cambio.
+   * Limpia el flag `mustChangePassword` al finalizar.
+   */
+  async changeOwnPassword(
+    userId: string,
+    dto: ChangeOwnPasswordDto,
+  ): Promise<{ success: true; message: string }> {
+    const user = await this.userRepo.findOne({
+      where: { id: userId },
+      select: ['id', 'username', 'passwordHash', 'mustChangePassword'],
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('Usuario no encontrado.');
+    }
+
+    const passwordMatch = await bcrypt.compare(dto.currentPassword, user.passwordHash);
+    if (!passwordMatch) {
+      throw new BadRequestException('La contraseña actual es incorrecta.');
+    }
+
+    if (dto.currentPassword === dto.newPassword) {
+      throw new BadRequestException('La nueva contraseña debe ser diferente a la actual.');
+    }
+
+    user.passwordHash = await bcrypt.hash(dto.newPassword, BCRYPT_ROUNDS);
+    user.mustChangePassword = false;
+    await this.userRepo.save(user);
+
+    this.logger.log(`Contraseña cambiada por el propio usuario: ${user.username}`);
+
+    return { success: true, message: 'Contraseña actualizada correctamente.' };
   }
 }
