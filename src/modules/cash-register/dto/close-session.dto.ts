@@ -4,8 +4,7 @@ import { IsNumber, IsOptional, IsString, Min, MaxLength } from 'class-validator'
 export class CloseSessionDto {
   @ApiProperty({
     example: 32500,
-    description:
-      'Monto de efectivo físico contado por el empleado al final del día.',
+    description: 'Monto de efectivo físico contado por el empleado al final del día.',
   })
   @IsNumber({}, { message: 'El monto contado debe ser un número.' })
   @Min(0, { message: 'El monto no puede ser negativo.' })

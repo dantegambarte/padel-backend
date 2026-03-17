@@ -1,12 +1,4 @@
-import {
-  Controller,
-  Get,
-  Put,
-  Patch,
-  Body,
-  Param,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, Put, Patch, Body, Param, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { SystemConfigService } from './system-config.service';
 import { UpdateConfigDto, BulkUpdateConfigDto } from './dto/update-config.dto';

@@ -18,9 +18,9 @@ async function bootstrap() {
   // ── Validación global ───────────────────────────────
   app.useGlobalPipes(
     new ValidationPipe({
-      whitelist: true,          // elimina props no declaradas en DTOs
+      whitelist: true, // elimina props no declaradas en DTOs
       forbidNonWhitelisted: true,
-      transform: true,          // convierte tipos automáticamente
+      transform: true, // convierte tipos automáticamente
       transformOptions: {
         enableImplicitConversion: true,
       },

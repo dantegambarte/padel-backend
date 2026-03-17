@@ -8,13 +8,7 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import {
-  ApiTags,
-  ApiBearerAuth,
-  ApiOperation,
-  ApiQuery,
-  ApiResponse,
-} from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { IsOptional, Matches } from 'class-validator';
 import { CashRegisterService } from './cash-register.service';
 import { CloseSessionDto } from './dto/close-session.dto';
@@ -81,10 +75,7 @@ export class CashRegisterController {
   @ApiResponse({ status: 200, description: 'Caja cerrada. Retorna el resumen del cierre.' })
   @ApiResponse({ status: 404, description: 'No hay sesión abierta hoy.' })
   @ApiResponse({ status: 409, description: 'La caja ya fue cerrada hoy.' })
-  closeSession(
-    @Body() dto: CloseSessionDto,
-    @CurrentUser() user: User,
-  ) {
+  closeSession(@Body() dto: CloseSessionDto, @CurrentUser() user: User) {
     return this.cashRegisterService.closeSession(dto, user);
   }
 }

@@ -129,10 +129,7 @@ export class BookingsService {
       // Serializa peticiones concurrentes para el mismo slot.
       // hashtext() es determinista: mismo input → mismo hash → mismo lock.
       const slotKey = `${dto.courtId}:${dto.date}:${dto.hour}`;
-      await queryRunner.query(
-        `SELECT pg_advisory_xact_lock(abs(hashtext($1)))`,
-        [slotKey],
-      );
+      await queryRunner.query(`SELECT pg_advisory_xact_lock(abs(hashtext($1)))`, [slotKey]);
 
       // ── PASO 2: Verificar que la cancha existe y está activa ──────────────
       const court = await queryRunner.manager.findOne(Court, {
@@ -140,9 +137,7 @@ export class BookingsService {
       });
 
       if (!court) {
-        throw new NotFoundException(
-          `Cancha con ID ${dto.courtId} no encontrada o inactiva.`,
-        );
+        throw new NotFoundException(`Cancha con ID ${dto.courtId} no encontrada o inactiva.`);
       }
 
       // ── PASO 3: Verificar solapamiento de rango (SELECT FOR UPDATE) ────────
@@ -160,13 +155,13 @@ export class BookingsService {
       // completed) ya que un turno completado sigue ocupando ese bloque de tiempo.
       const [newH, newM] = dto.hour.split(':').map(Number);
       const newStartMin = newH * 60 + newM;
-      const newEndMin   = newStartMin + (dto.durationMinutes ?? 60);
+      const newEndMin = newStartMin + (dto.durationMinutes ?? 60);
 
       const overlappingBooking = await queryRunner.manager
         .createQueryBuilder(Booking, 'b')
         .setLock('pessimistic_write')
-        .where('b.court_id = :courtId',  { courtId: dto.courtId })
-        .andWhere('b.date = :date',       { date: dto.date })
+        .where('b.court_id = :courtId', { courtId: dto.courtId })
+        .andWhere('b.date = :date', { date: dto.date })
         .andWhere('b.status != :cancelled', { cancelled: BookingStatus.CANCELLED })
         .andWhere(
           // Existing booking starts before new booking ends
@@ -185,22 +180,18 @@ export class BookingsService {
       if (overlappingBooking) {
         throw new ConflictException(
           `El slot ${court.name} - ${dto.hour}hs del ${dto.date} se solapa con ` +
-          `el turno de ${overlappingBooking.clientName} (${overlappingBooking.hour}hs, ` +
-          `${overlappingBooking.durationMinutes} min).`,
+            `el turno de ${overlappingBooking.clientName} (${overlappingBooking.hour}hs, ` +
+            `${overlappingBooking.durationMinutes} min).`,
         );
       }
 
       // ── PASO 4: Obtener precio desde la configuración del sistema ─────────
       const prices = await this.systemConfigService.getPrices();
       const priceType = dto.priceType ?? PriceType.STANDARD;
-      const priceAmount =
-        priceType === PriceType.PROFESSOR ? prices.professor : prices.standard;
+      const priceAmount = priceType === PriceType.PROFESSOR ? prices.professor : prices.standard;
 
       // ── PASO 5: Procesar productos del buffet (stock) ─────────────────────
-      const bookingItems = await this.processItems(
-        dto.items ?? [],
-        queryRunner,
-      );
+      const bookingItems = await this.processItems(dto.items ?? [], queryRunner);
 
       // ── PASO 6: Crear el turno ────────────────────────────────────────────
       const booking = queryRunner.manager.create(Booking, {
@@ -270,12 +261,9 @@ export class BookingsService {
 
       // Retornar el turno completo con relaciones
       return this.findOne(savedBooking.id);
-
     } catch (error) {
       await queryRunner.rollbackTransaction();
-      this.logger.warn(
-        `ROLLBACK en creación de turno: ${error.message}`,
-      );
+      this.logger.warn(`ROLLBACK en creación de turno: ${error.message}`);
       this.handleDbError(error);
     } finally {
       await queryRunner.release();
@@ -286,11 +274,7 @@ export class BookingsService {
   //  PATCH: Actualizar turno
   // ───────────────────────────────────────────────────────────────────────────
 
-  async update(
-    id: string,
-    dto: UpdateBookingDto,
-    user: User,
-  ): Promise<Booking> {
+  async update(id: string, dto: UpdateBookingDto, user: User): Promise<Booking> {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -348,18 +332,12 @@ export class BookingsService {
         if (existingItems.length > 0) {
           const ids = existingItems.map((i) => i.id);
           const placeholders = ids.map((_, idx) => `$${idx + 1}`).join(', ');
-          await queryRunner.query(
-            `DELETE FROM booking_items WHERE id IN (${placeholders})`,
-            ids,
-          );
+          await queryRunner.query(`DELETE FROM booking_items WHERE id IN (${placeholders})`, ids);
         }
 
         // 4c. Procesar y descontar los nuevos items
         const newItems = await this.processItems(dto.items, queryRunner);
-        itemsTotal = newItems.reduce(
-          (sum, i) => sum + Number(i.unitPrice) * i.quantity,
-          0,
-        );
+        itemsTotal = newItems.reduce((sum, i) => sum + Number(i.unitPrice) * i.quantity, 0);
 
         // INSERT con SQL raw — garantiza columnas exactas sin interferencia ORM.
         for (const item of newItems) {
@@ -382,36 +360,33 @@ export class BookingsService {
       if (dto.status === BookingStatus.COMPLETED) {
         const existingPayment = bookingWithRelations?.payment;
         const effectiveCash =
-          dto.amountCash !== undefined
-            ? dto.amountCash
-            : Number(existingPayment?.amountCash ?? 0);
+          dto.amountCash !== undefined ? dto.amountCash : Number(existingPayment?.amountCash ?? 0);
         const effectiveTransfer =
           dto.amountTransfer !== undefined
             ? dto.amountTransfer
             : Number(existingPayment?.amountTransfer ?? 0);
 
-        const totalPaid     = effectiveCash + effectiveTransfer;
+        const totalPaid = effectiveCash + effectiveTransfer;
         const totalRequired = Number(booking.priceAmount) + itemsTotal;
 
         if (totalPaid < totalRequired) {
           throw new BadRequestException(
             'No se puede completar un turno con saldo pendiente. ' +
-            `Pagado: $${totalPaid}, Requerido: $${totalRequired} ` +
-            `(cancha $${booking.priceAmount} + consumos $${itemsTotal}).`,
+              `Pagado: $${totalPaid}, Requerido: $${totalRequired} ` +
+              `(cancha $${booking.priceAmount} + consumos $${itemsTotal}).`,
           );
         }
       }
 
       // ── PASO 6: Actualizar pago si se envía ───────────────────────────────
-      const hasPaymentUpdate =
-        dto.amountCash !== undefined || dto.amountTransfer !== undefined;
+      const hasPaymentUpdate = dto.amountCash !== undefined || dto.amountTransfer !== undefined;
 
       if (hasPaymentUpdate) {
         if (bookingWithRelations?.payment) {
           // UPDATE directo sobre el registro de pago existente
           const paymentFields: Partial<BookingPayment> = {};
-          if (dto.amountCash      !== undefined) paymentFields.amountCash      = dto.amountCash;
-          if (dto.amountTransfer  !== undefined) paymentFields.amountTransfer  = dto.amountTransfer;
+          if (dto.amountCash !== undefined) paymentFields.amountCash = dto.amountCash;
+          if (dto.amountTransfer !== undefined) paymentFields.amountTransfer = dto.amountTransfer;
           await queryRunner.manager.update(
             BookingPayment,
             bookingWithRelations.payment.id,
@@ -431,7 +406,7 @@ export class BookingsService {
       // UPDATE directo evita cascade-save sobre relaciones.
       const bookingFields: Partial<Booking> = {};
       if (dto.clientName) bookingFields.clientName = dto.clientName;
-      if (dto.status)     bookingFields.status     = dto.status;
+      if (dto.status) bookingFields.status = dto.status;
 
       if (Object.keys(bookingFields).length > 0) {
         await queryRunner.manager.update(Booking, { id: booking.id }, bookingFields);
@@ -445,7 +420,6 @@ export class BookingsService {
       );
 
       return this.findOne(id);
-
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(`ROLLBACK en actualización de turno ${id}: ${error.message}`, error.stack);
@@ -461,9 +435,7 @@ export class BookingsService {
 
   async cancel(id: string, user: User): Promise<void> {
     if (user.role !== UserRole.ADMIN) {
-      throw new ForbiddenException(
-        'Solo los administradores pueden cancelar turnos.',
-      );
+      throw new ForbiddenException('Solo los administradores pueden cancelar turnos.');
     }
 
     const queryRunner = this.dataSource.createQueryRunner();
@@ -497,13 +469,16 @@ export class BookingsService {
 
       // UPDATE directo: evita que TypeORM haga cascade-save sobre las relaciones
       // cargadas (items, payment), que causaba el Error 500 por restricción FK.
-      await queryRunner.manager.update(Booking, { id: booking.id }, { status: BookingStatus.CANCELLED });
+      await queryRunner.manager.update(
+        Booking,
+        { id: booking.id },
+        { status: BookingStatus.CANCELLED },
+      );
 
       await queryRunner.commitTransaction();
       this.logger.log(
         `Turno ${id} cancelado por admin ${user.username}. Stock restaurado para ${bookingWithItems?.items?.length ?? 0} productos.`,
       );
-
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.handleDbError(error);
@@ -539,13 +514,11 @@ export class BookingsService {
       const product = await queryRunner.manager.findOne(Product, {
         where: { id: item.productId, isActive: true },
         lock: { mode: 'pessimistic_write' },
-        loadEagerRelations: false,   // evita LEFT JOIN en category (nullable) con FOR UPDATE
+        loadEagerRelations: false, // evita LEFT JOIN en category (nullable) con FOR UPDATE
       });
 
       if (!product) {
-        throw new NotFoundException(
-          `Producto con ID ${item.productId} no encontrado o inactivo.`,
-        );
+        throw new NotFoundException(`Producto con ID ${item.productId} no encontrado o inactivo.`);
       }
 
       if (product.stock < item.quantity) {
@@ -556,17 +529,12 @@ export class BookingsService {
       }
 
       // Descontar stock con UPDATE atómico
-      await queryRunner.manager.decrement(
-        Product,
-        { id: product.id },
-        'stock',
-        item.quantity,
-      );
+      await queryRunner.manager.decrement(Product, { id: product.id }, 'stock', item.quantity);
 
       result.push({
         productId: item.productId,
         quantity: item.quantity,
-        unitPrice: Number(product.salePrice),   // snapshot del precio actual
+        unitPrice: Number(product.salePrice), // snapshot del precio actual
       });
     }
 
@@ -577,23 +545,13 @@ export class BookingsService {
    * Restaura el stock de los items de un turno.
    * Se usa al cancelar un turno o al reemplazar items en un update.
    */
-  private async restoreStock(
-    items: BookingItem[],
-    queryRunner: any,
-  ): Promise<void> {
+  private async restoreStock(items: BookingItem[], queryRunner: any): Promise<void> {
     for (const item of items) {
-      await queryRunner.manager.increment(
-        Product,
-        { id: item.productId },
-        'stock',
-        item.quantity,
-      );
+      await queryRunner.manager.increment(Product, { id: item.productId }, 'stock', item.quantity);
     }
 
     if (items.length > 0) {
-      this.logger.debug(
-        `Stock restaurado para ${items.length} productos del turno.`,
-      );
+      this.logger.debug(`Stock restaurado para ${items.length} productos del turno.`);
     }
   }
 
@@ -612,23 +570,15 @@ export class BookingsService {
    *   COMPLETED → (ninguno, estado terminal)
    *   CANCELLED → (ninguno, estado terminal)
    */
-  private validateStatusTransition(
-    current: BookingStatus,
-    next: BookingStatus,
-    user: User,
-  ): void {
+  private validateStatusTransition(current: BookingStatus, next: BookingStatus, user: User): void {
     const TERMINAL_STATES = [BookingStatus.COMPLETED, BookingStatus.CANCELLED];
 
     if (TERMINAL_STATES.includes(current)) {
-      throw new BadRequestException(
-        `No se puede cambiar el estado de un turno ${current}.`,
-      );
+      throw new BadRequestException(`No se puede cambiar el estado de un turno ${current}.`);
     }
 
     if (next === BookingStatus.CANCELLED && user.role !== UserRole.ADMIN) {
-      throw new ForbiddenException(
-        'Solo los administradores pueden cancelar turnos.',
-      );
+      throw new ForbiddenException('Solo los administradores pueden cancelar turnos.');
     }
 
     const VALID_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
@@ -660,9 +610,7 @@ export class BookingsService {
 
     // Check constraint violation (stock < 0, quantity <= 0)
     if (error?.code === '23514') {
-      throw new BadRequestException(
-        'Operación inválida: se intentó dejar stock negativo.',
-      );
+      throw new BadRequestException('Operación inválida: se intentó dejar stock negativo.');
     }
 
     // Si ya es una HttpException (NotFoundException, ConflictException, etc.),

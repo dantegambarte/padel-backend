@@ -101,10 +101,7 @@ export class BookingsController {
     status: 400,
     description: 'Stock insuficiente para algún producto del buffet.',
   })
-  create(
-    @Body() createBookingDto: CreateBookingDto,
-    @CurrentUser() user: User,
-  ) {
+  create(@Body() createBookingDto: CreateBookingDto, @CurrentUser() user: User) {
     return this.bookingsService.create(createBookingDto, user);
   }
 
@@ -157,16 +154,12 @@ export class BookingsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({
     summary: 'Cancelar un turno (solo admin)',
-    description:
-      'Cancelación lógica. Restaura el stock de productos del buffet automáticamente.',
+    description: 'Cancelación lógica. Restaura el stock de productos del buffet automáticamente.',
   })
   @ApiParam({ name: 'id', type: 'string', format: 'uuid' })
   @ApiResponse({ status: 204, description: 'Turno cancelado.' })
   @ApiResponse({ status: 403, description: 'Solo administradores.' })
-  cancel(
-    @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser() user: User,
-  ) {
+  cancel(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: User) {
     return this.bookingsService.cancel(id, user);
   }
 }

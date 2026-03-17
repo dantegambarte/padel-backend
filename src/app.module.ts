@@ -31,8 +31,8 @@ import { ReportsModule } from './modules/reports/reports.module';
     ThrottlerModule.forRoot([
       {
         name: 'default',
-        ttl: 60_000,   // ventana de 1 minuto (ms)
-        limit: 60,     // máx. 60 peticiones generales por minuto
+        ttl: 60_000, // ventana de 1 minuto (ms)
+        limit: 60, // máx. 60 peticiones generales por minuto
       },
     ]),
 
@@ -42,7 +42,7 @@ import { ReportsModule } from './modules/reports/reports.module';
       envFilePath: '.env',
       validationSchema: envValidationSchema,
       validationOptions: {
-        abortEarly: false,   // muestra TODOS los errores juntos, no solo el primero
+        abortEarly: false, // muestra TODOS los errores juntos, no solo el primero
       },
     }),
 

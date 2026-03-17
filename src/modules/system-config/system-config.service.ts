@@ -19,10 +19,13 @@ export class SystemConfigService {
   /** Helper interno: retorna objeto plano { key: value } */
   private async findAllAsMap(): Promise<Record<string, string>> {
     const configs = await this.configRepo.find();
-    return configs.reduce((acc, cfg) => {
-      acc[cfg.key] = cfg.value;
-      return acc;
-    }, {} as Record<string, string>);
+    return configs.reduce(
+      (acc, cfg) => {
+        acc[cfg.key] = cfg.value;
+        return acc;
+      },
+      {} as Record<string, string>,
+    );
   }
 
   async findByKey(key: string): Promise<string> {

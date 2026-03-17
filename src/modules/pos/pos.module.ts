@@ -11,7 +11,7 @@ import { CashRegisterModule } from '../cash-register/cash-register.module';
 @Module({
   imports: [
     TypeOrmModule.forFeature([Sale, SaleItem, Product]),
-    CashRegisterModule,   // Para registrar movimientos en caja al crear ventas
+    CashRegisterModule, // Para registrar movimientos en caja al crear ventas
   ],
   controllers: [PosController],
   providers: [PosService],

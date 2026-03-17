@@ -20,7 +20,8 @@ export class ReportQueryDto {
 
   @ApiPropertyOptional({
     example: '2025-03-01',
-    description: 'Fecha de inicio del período (YYYY-MM-DD). Por defecto: primer día del mes actual.',
+    description:
+      'Fecha de inicio del período (YYYY-MM-DD). Por defecto: primer día del mes actual.',
   })
   @IsOptional()
   @Matches(DATE_REGEX, { message: 'dateFrom debe tener formato YYYY-MM-DD' })

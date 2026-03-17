@@ -17,10 +17,10 @@ import { BookingItem } from './booking-item.entity';
 import { BookingPayment } from './booking-payment.entity';
 
 export enum BookingStatus {
-  BOOKED = 'booked',         // Reservado (con o sin seña)
-  PLAYING = 'playing',       // Jugando actualmente
-  COMPLETED = 'completed',   // Turno finalizado
-  CANCELLED = 'cancelled',   // Cancelado (solo admin)
+  BOOKED = 'booked', // Reservado (con o sin seña)
+  PLAYING = 'playing', // Jugando actualmente
+  COMPLETED = 'completed', // Turno finalizado
+  CANCELLED = 'cancelled', // Cancelado (solo admin)
 }
 
 export enum PriceType {
@@ -57,7 +57,7 @@ export class Booking {
    * La hora se guarda por separado para facilitar queries por grilla.
    */
   @Column({ type: 'date' })
-  date: string;   // "2025-03-15"
+  date: string; // "2025-03-15"
 
   /**
    * Franja horaria en formato "HH:MM" (ej: "09:00", "15:00").

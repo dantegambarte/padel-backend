@@ -1,11 +1,5 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
-import {
-  ApiTags,
-  ApiBearerAuth,
-  ApiOperation,
-  ApiQuery,
-  ApiResponse,
-} from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { ReportsService } from './reports.service';
 import { ReportQueryDto } from './dto/report-query.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -34,9 +28,14 @@ export class ReportsController {
       'Retorna los totales agregados (ingresos, distribución por tipo y método de pago) ' +
       'para las cards superiores del dashboard de reportes.',
   })
-  @ApiQuery({ name: 'date',     required: false, example: '2025-03-15', description: 'Día exacto (tiene precedencia sobre dateFrom/dateTo).' })
+  @ApiQuery({
+    name: 'date',
+    required: false,
+    example: '2025-03-15',
+    description: 'Día exacto (tiene precedencia sobre dateFrom/dateTo).',
+  })
   @ApiQuery({ name: 'dateFrom', required: false, example: '2025-03-01' })
-  @ApiQuery({ name: 'dateTo',   required: false, example: '2025-03-31' })
+  @ApiQuery({ name: 'dateTo', required: false, example: '2025-03-31' })
   @ApiResponse({ status: 200, description: 'Resumen del período.' })
   getSummary(@Query() query: ReportQueryDto) {
     return this.reportsService.getSummary(query);
@@ -56,10 +55,15 @@ export class ReportsController {
       'Serie temporal de ingresos desglosada en Alquileres (turnos) y Productos (ventas POS). ' +
       'groupBy acepta "day" (default), "week" o "month".',
   })
-  @ApiQuery({ name: 'date',     required: false, example: '2025-03-15', description: 'Día exacto (tiene precedencia sobre dateFrom/dateTo).' })
+  @ApiQuery({
+    name: 'date',
+    required: false,
+    example: '2025-03-15',
+    description: 'Día exacto (tiene precedencia sobre dateFrom/dateTo).',
+  })
   @ApiQuery({ name: 'dateFrom', required: false, example: '2025-03-01' })
-  @ApiQuery({ name: 'dateTo',   required: false, example: '2025-03-31' })
-  @ApiQuery({ name: 'groupBy',  required: false, example: 'day', enum: ['day', 'week', 'month'] })
+  @ApiQuery({ name: 'dateTo', required: false, example: '2025-03-31' })
+  @ApiQuery({ name: 'groupBy', required: false, example: 'day', enum: ['day', 'week', 'month'] })
   @ApiResponse({ status: 200, description: 'Serie de ingresos por período.' })
   getRevenue(@Query() query: ReportQueryDto) {
     return this.reportsService.getRevenue(query);
@@ -77,9 +81,14 @@ export class ReportsController {
     description:
       'Retorna totales y porcentajes de Efectivo vs Transferencia para el período solicitado.',
   })
-  @ApiQuery({ name: 'date',     required: false, example: '2025-03-15', description: 'Día exacto (tiene precedencia sobre dateFrom/dateTo).' })
+  @ApiQuery({
+    name: 'date',
+    required: false,
+    example: '2025-03-15',
+    description: 'Día exacto (tiene precedencia sobre dateFrom/dateTo).',
+  })
   @ApiQuery({ name: 'dateFrom', required: false, example: '2025-03-01' })
-  @ApiQuery({ name: 'dateTo',   required: false, example: '2025-03-31' })
+  @ApiQuery({ name: 'dateTo', required: false, example: '2025-03-31' })
   @ApiResponse({ status: 200, description: 'Distribución de métodos de pago.' })
   getPaymentMethods(@Query() query: ReportQueryDto) {
     return this.reportsService.getPaymentMethods(query);
@@ -98,9 +107,14 @@ export class ReportsController {
       'Top 20 productos ordenados por cantidad de unidades vendidas. ' +
       'Incluye ventas del POS y consumos registrados en turnos (booking items).',
   })
-  @ApiQuery({ name: 'date',     required: false, example: '2025-03-15', description: 'Día exacto (tiene precedencia sobre dateFrom/dateTo).' })
+  @ApiQuery({
+    name: 'date',
+    required: false,
+    example: '2025-03-15',
+    description: 'Día exacto (tiene precedencia sobre dateFrom/dateTo).',
+  })
   @ApiQuery({ name: 'dateFrom', required: false, example: '2025-03-01' })
-  @ApiQuery({ name: 'dateTo',   required: false, example: '2025-03-31' })
+  @ApiQuery({ name: 'dateTo', required: false, example: '2025-03-31' })
   @ApiResponse({ status: 200, description: 'Ranking de productos.' })
   getProductsRanking(@Query() query: ReportQueryDto) {
     return this.reportsService.getProductsRanking(query);
@@ -121,9 +135,14 @@ export class ReportsController {
       'Retorna un array plano con todos los movimientos de caja del período. ' +
       'El frontend puede convertir este JSON a CSV sin dependencias adicionales.',
   })
-  @ApiQuery({ name: 'date',     required: false, example: '2025-03-15', description: 'Día exacto (tiene precedencia sobre dateFrom/dateTo).' })
+  @ApiQuery({
+    name: 'date',
+    required: false,
+    example: '2025-03-15',
+    description: 'Día exacto (tiene precedencia sobre dateFrom/dateTo).',
+  })
   @ApiQuery({ name: 'dateFrom', required: false, example: '2025-03-01' })
-  @ApiQuery({ name: 'dateTo',   required: false, example: '2025-03-31' })
+  @ApiQuery({ name: 'dateTo', required: false, example: '2025-03-31' })
   @ApiResponse({ status: 200, description: 'Lista de transacciones para exportar.' })
   getTransactionsExport(@Query() query: ReportQueryDto) {
     return this.reportsService.getTransactionsExport(query);

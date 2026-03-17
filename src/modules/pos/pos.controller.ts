@@ -10,13 +10,7 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import {
-  ApiTags,
-  ApiBearerAuth,
-  ApiOperation,
-  ApiQuery,
-  ApiResponse,
-} from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { IsOptional, Matches } from 'class-validator';
 import { PosService } from './pos.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
@@ -49,8 +43,7 @@ export class PosController {
   })
   @ApiQuery({ name: 'date', required: false, example: '2025-03-15' })
   findByDate(@Query() query: SalesQueryDto) {
-    const date =
-      query.date ?? new Date().toISOString().split('T')[0];
+    const date = query.date ?? new Date().toISOString().split('T')[0];
     return this.posService.findByDate(date);
   }
 
@@ -90,8 +83,7 @@ export class PosController {
   @ApiResponse({ status: 201, description: 'Venta confirmada.' })
   @ApiResponse({
     status: 400,
-    description:
-      'Stock insuficiente (indica qué producto) o pago insuficiente.',
+    description: 'Stock insuficiente (indica qué producto) o pago insuficiente.',
   })
   create(
     @Body() dto: CreateSaleDto,

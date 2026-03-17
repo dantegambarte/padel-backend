@@ -35,7 +35,6 @@ import { TransactionType } from '../cash-register/entities/transaction.entity';
 //  Lo mismo aplica a BookingItem.unitPrice en el módulo de Agenda (Fase 3).
 // ─────────────────────────────────────────────────────────────────────────────
 
-
 @Injectable()
 export class PosService {
   private readonly logger = new Logger(PosService.name);
@@ -93,16 +92,10 @@ export class PosService {
 
     try {
       // ── PASO 1: Resolver items con bloqueo y snapshot de precio ───────────
-      const resolvedItems = await this.resolveItemsWithLock(
-        dto.items,
-        queryRunner,
-      );
+      const resolvedItems = await this.resolveItemsWithLock(dto.items, queryRunner);
 
       // ── PASO 2: Calcular total de la venta ───────────────────────────────
-      const total = resolvedItems.reduce(
-        (sum, item) => sum + item.unitPrice * item.quantity,
-        0,
-      );
+      const total = resolvedItems.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
 
       const amountCash = dto.amountCash ?? 0;
       const amountTransfer = dto.amountTransfer ?? 0;
@@ -123,10 +116,7 @@ export class PosService {
       // operación, o retorna la existente. Si la caja está CERRADA lanza
       // ServiceUnavailableException → ROLLBACK automático de toda la venta.
       //
-      const session = await this.cashRegisterService.getOrCreateActiveSession(
-        queryRunner,
-        user.id,
-      );
+      const session = await this.cashRegisterService.getOrCreateActiveSession(queryRunner, user.id);
 
       // ── PASO 4: Crear el registro de venta con sesión de caja ─────────────
       const sale = queryRunner.manager.create(Sale, {
@@ -151,7 +141,7 @@ export class PosService {
           saleId: savedSale.id,
           productId: item.productId,
           quantity: item.quantity,
-          unitPrice: item.unitPrice,   // ← PRECIO CONGELADO (snapshot)
+          unitPrice: item.unitPrice, // ← PRECIO CONGELADO (snapshot)
         }),
       );
 
@@ -193,7 +183,6 @@ export class PosService {
 
       // Retornar la venta con sus relaciones completas
       return this.findOneWithDetails(savedSale.id);
-
     } catch (error) {
       // Envolver el rollback en su propio try/catch:
       // Si PostgreSQL ya abortó la transacción internamente (ej: constraint
@@ -204,7 +193,10 @@ export class PosService {
       try {
         await queryRunner.rollbackTransaction();
       } catch (rollbackError) {
-        this.logger.error('Error al intentar ROLLBACK (transacción ya abortada por DB):', rollbackError);
+        this.logger.error(
+          'Error al intentar ROLLBACK (transacción ya abortada por DB):',
+          rollbackError,
+        );
       }
 
       // Imprimir el error ORIGINAL completo (con stack trace) para que no sea
@@ -309,7 +301,7 @@ export class PosService {
         productId: product.id,
         productName: product.name,
         quantity: item.quantity,
-        unitPrice: Number(product.salePrice),   // ← SNAPSHOT INMUTABLE
+        unitPrice: Number(product.salePrice), // ← SNAPSHOT INMUTABLE
       });
     }
 
@@ -328,9 +320,7 @@ export class PosService {
   private handleDbError(error: any): never {
     // Check constraint: stock quedó negativo (segunda red de seguridad)
     if (error?.code === '23514') {
-      throw new BadRequestException(
-        'Stock insuficiente detectado por la base de datos.',
-      );
+      throw new BadRequestException('Stock insuficiente detectado por la base de datos.');
     }
 
     if (error?.getStatus) {

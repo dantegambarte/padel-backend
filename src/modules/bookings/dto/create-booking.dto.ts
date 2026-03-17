@@ -87,7 +87,10 @@ export class CreateBookingDto {
   @Min(0)
   amountTransfer?: number;
 
-  @ApiPropertyOptional({ example: 60, description: 'Duración del turno en minutos (30, 60, 90, 120)' })
+  @ApiPropertyOptional({
+    example: 60,
+    description: 'Duración del turno en minutos (30, 60, 90, 120)',
+  })
   @IsOptional()
   @IsInt()
   @Min(30)

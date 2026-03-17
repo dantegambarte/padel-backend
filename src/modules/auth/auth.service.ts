@@ -42,9 +42,7 @@ export class AuthService {
     }
 
     if (!user.isActive) {
-      throw new UnauthorizedException(
-        'Tu cuenta está desactivada. Contactá al administrador.',
-      );
+      throw new UnauthorizedException('Tu cuenta está desactivada. Contactá al administrador.');
     }
 
     const passwordMatch = await bcrypt.compare(password, user.passwordHash);
@@ -109,13 +107,10 @@ export class AuthService {
    */
   async refreshToken(refreshToken: string) {
     try {
-      const payload = await this.jwtService.verifyAsync<JwtPayload>(
-        refreshToken,
-        {
-          secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
-          algorithms: ['HS256'],
-        },
-      );
+      const payload = await this.jwtService.verifyAsync<JwtPayload>(refreshToken, {
+        secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
+        algorithms: ['HS256'],
+      });
 
       // Verificamos que el usuario siga activo al momento del refresh
       const user = await this.userRepo.findOne({

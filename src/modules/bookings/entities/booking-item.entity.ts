@@ -22,7 +22,7 @@ export class BookingItem {
 
   @ManyToOne(() => Booking, (booking) => booking.items, {
     nullable: false,
-    onDelete: 'CASCADE',   // si se borra la reserva, se borran sus items
+    onDelete: 'CASCADE', // si se borra la reserva, se borran sus items
   })
   @JoinColumn({ name: 'booking_id' })
   booking: Booking;

@@ -23,7 +23,7 @@ export class Product {
   @ManyToOne(() => ProductCategory, (category) => category.products, {
     nullable: true,
     onDelete: 'SET NULL',
-    eager: true,           // siempre cargamos la categoría junto al producto
+    eager: true, // siempre cargamos la categoría junto al producto
   })
   @JoinColumn({ name: 'category_id' })
   category: ProductCategory;

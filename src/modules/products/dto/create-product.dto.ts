@@ -55,8 +55,7 @@ export class CreateProductDto {
 
   @ApiPropertyOptional({
     example: true,
-    description:
-      'Producto destacado: aparece como botón rápido en el modal de Agenda.',
+    description: 'Producto destacado: aparece como botón rápido en el modal de Agenda.',
     default: false,
   })
   @IsOptional()

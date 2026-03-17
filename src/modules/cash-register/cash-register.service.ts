@@ -94,17 +94,13 @@ export class CashRegisterService {
    * Si la caja del día ya está CERRADA → lanza ServiceUnavailableException,
    * lo que provoca ROLLBACK de toda la operación de origen (turno o venta).
    */
-  async getOrCreateActiveSession(
-    queryRunner: QueryRunner,
-    userId: string,
-  ): Promise<CashSession> {
+  async getOrCreateActiveSession(queryRunner: QueryRunner, userId: string): Promise<CashSession> {
     const today = this.getToday();
 
     // Advisory lock: serializa la creación de sesiones del mismo día
-    await queryRunner.query(
-      `SELECT pg_advisory_xact_lock(abs(hashtext($1)))`,
-      [`cash_session:${today}`],
-    );
+    await queryRunner.query(`SELECT pg_advisory_xact_lock(abs(hashtext($1)))`, [
+      `cash_session:${today}`,
+    ]);
 
     const existing = await queryRunner.manager.findOne(CashSession, {
       where: { date: today },
@@ -199,9 +195,7 @@ export class CashRegisterService {
     }
 
     // Calcular totales en tiempo real desde la tabla de transactions
-    const totals = await this.dataSource.query<
-      { cash_expected: string; transfer_total: string }[]
-    >(
+    const totals = await this.dataSource.query<{ cash_expected: string; transfer_total: string }[]>(
       `SELECT
          COALESCE(SUM(amount_cash), 0)       AS cash_expected,
          COALESCE(SUM(amount_transfer), 0)   AS transfer_total
@@ -241,7 +235,10 @@ export class CashRegisterService {
    * Después del cierre, cualquier intento de booking o venta del mismo día
    * disparará ServiceUnavailableException via getOrCreateActiveSession().
    */
-  async closeSession(dto: CloseSessionDto, user: User): Promise<{
+  async closeSession(
+    dto: CloseSessionDto,
+    user: User,
+  ): Promise<{
     session: CashSession;
     cashExpected: number;
     transferTotal: number;
@@ -257,8 +254,7 @@ export class CashRegisterService {
 
     if (!session) {
       throw new NotFoundException(
-        'No existe una sesión de caja abierta para hoy. ' +
-          'No hubo operaciones registradas.',
+        'No existe una sesión de caja abierta para hoy. ' + 'No hubo operaciones registradas.',
       );
     }
 
@@ -267,9 +263,7 @@ export class CashRegisterService {
     }
 
     // Calcular efectivo esperado del sistema
-    const totals = await this.dataSource.query<
-      { cash_expected: string; transfer_total: string }[]
-    >(
+    const totals = await this.dataSource.query<{ cash_expected: string; transfer_total: string }[]>(
       `SELECT
          COALESCE(SUM(amount_cash), 0)     AS cash_expected,
          COALESCE(SUM(amount_transfer), 0) AS transfer_total
@@ -298,8 +292,7 @@ export class CashRegisterService {
         `Diferencia: ${difference >= 0 ? '+' : ''}$${difference}`,
     );
 
-    const balances =
-      difference === 0 ? 'exact' : difference > 0 ? 'surplus' : 'shortage';
+    const balances = difference === 0 ? 'exact' : difference > 0 ? 'surplus' : 'shortage';
 
     return {
       session,

@@ -11,7 +11,10 @@ import {
 import { UserRole } from '../entities/user.entity';
 
 export class CreateUserDto {
-  @ApiProperty({ example: 'maria_garcia', description: 'Nombre de usuario (solo letras, números y guiones bajos)' })
+  @ApiProperty({
+    example: 'maria_garcia',
+    description: 'Nombre de usuario (solo letras, números y guiones bajos)',
+  })
   @IsString()
   @IsNotEmpty({ message: 'El nombre de usuario es obligatorio.' })
   @MinLength(3, { message: 'El usuario debe tener al menos 3 caracteres.' })

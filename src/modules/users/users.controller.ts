@@ -11,12 +11,7 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import {
-  ApiTags,
-  ApiBearerAuth,
-  ApiOperation,
-  ApiParam,
-} from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiParam } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -29,7 +24,7 @@ import { UserRole } from './entities/user.entity';
 @ApiTags('Usuarios')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.ADMIN)         // Todo el módulo es solo para admins
+@Roles(UserRole.ADMIN) // Todo el módulo es solo para admins
 @Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
@@ -68,10 +63,7 @@ export class UsersController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Desactivar un usuario (baja lógica)' })
   @ApiParam({ name: 'id', type: 'string', format: 'uuid' })
-  deactivate(
-    @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser('id') requestingUserId: string,
-  ) {
+  deactivate(@Param('id', ParseUUIDPipe) id: string, @CurrentUser('id') requestingUserId: string) {
     return this.usersService.deactivate(id, requestingUserId);
   }
 }

@@ -16,11 +16,11 @@ import { CashRegisterModule } from '../cash-register/cash-register.module';
 @Module({
   imports: [
     TypeOrmModule.forFeature([Booking, BookingItem, BookingPayment, Product, Court]),
-    SystemConfigModule,     // Para leer precios en tiempo real desde la config
-    CashRegisterModule,     // Para registrar movimientos en caja al crear turnos
+    SystemConfigModule, // Para leer precios en tiempo real desde la config
+    CashRegisterModule, // Para registrar movimientos en caja al crear turnos
   ],
   controllers: [BookingsController],
   providers: [BookingsService],
-  exports: [BookingsService],   // Exportado para que ReportsModule lo consuma en Fase 5
+  exports: [BookingsService], // Exportado para que ReportsModule lo consuma en Fase 5
 })
 export class BookingsModule {}

@@ -50,9 +50,7 @@ export class UsersService {
     });
 
     if (existing) {
-      throw new ConflictException(
-        `El nombre de usuario "${dto.username}" ya está en uso.`,
-      );
+      throw new ConflictException(`El nombre de usuario "${dto.username}" ya está en uso.`);
     }
 
     const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
@@ -99,9 +97,7 @@ export class UsersService {
 
     if (dto.isActive !== undefined) {
       user.isActive = dto.isActive;
-      this.logger.log(
-        `Usuario ${user.username} ${dto.isActive ? 'activado' : 'desactivado'}`,
-      );
+      this.logger.log(`Usuario ${user.username} ${dto.isActive ? 'activado' : 'desactivado'}`);
     }
 
     if (dto.role !== undefined) {
@@ -134,9 +130,7 @@ export class UsersService {
         where: { role: UserRole.ADMIN, isActive: true },
       });
       if (adminCount <= 1) {
-        throw new ForbiddenException(
-          'No podés desactivar al único administrador del sistema.',
-        );
+        throw new ForbiddenException('No podés desactivar al único administrador del sistema.');
       }
     }
 

@@ -60,14 +60,13 @@ export class ReportsService {
 
     const now = new Date();
     // toLocaleDateString con locale neutro + timeZone Argentina evita el desfase UTC
-    const localStr = (d: Date) =>
-      d.toLocaleDateString('en-CA', { timeZone: this.TZ }); // en-CA → YYYY-MM-DD
+    const localStr = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: this.TZ }); // en-CA → YYYY-MM-DD
 
     const today = localStr(now);
     const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
     const from = dto.dateFrom ?? localStr(firstOfMonth);
-    const to   = dto.dateTo   ?? today;
+    const to = dto.dateTo ?? today;
 
     return { from, to };
   }
@@ -98,20 +97,24 @@ export class ReportsService {
    *   { period: '2025-03-02', bookings: 30000, sales: 8500,  total: 38500 },
    * ]
    */
-  async getRevenue(dto: ReportQueryDto): Promise<{
-    period: string;
-    bookings: number;
-    sales: number;
-    total: number;
-  }[]> {
+  async getRevenue(dto: ReportQueryDto): Promise<
+    {
+      period: string;
+      bookings: number;
+      sales: number;
+      total: number;
+    }[]
+  > {
     const { from, to } = this.resolveDateRange(dto);
     const trunc = this.pgTrunc(dto.groupBy);
 
-    const rows = await this.dataSource.query<{
-      period: string;
-      bookings: string;
-      sales: string;
-    }[]>(
+    const rows = await this.dataSource.query<
+      {
+        period: string;
+        bookings: string;
+        sales: string;
+      }[]
+    >(
       `SELECT
          DATE_TRUNC($1, (created_at AT TIME ZONE $2))::date::text AS period,
          COALESCE(SUM(CASE WHEN type = 'booking' THEN amount_cash + amount_transfer ELSE 0 END), 0) AS bookings,
@@ -152,10 +155,12 @@ export class ReportsService {
   }> {
     const { from, to } = this.resolveDateRange(dto);
 
-    const rows = await this.dataSource.query<{
-      cash_total: string;
-      transfer_total: string;
-    }[]>(
+    const rows = await this.dataSource.query<
+      {
+        cash_total: string;
+        transfer_total: string;
+      }[]
+    >(
       `SELECT
          COALESCE(SUM(amount_cash), 0)     AS cash_total,
          COALESCE(SUM(amount_transfer), 0) AS transfer_total
@@ -168,8 +173,7 @@ export class ReportsService {
     const transfer = parseFloat(rows[0]?.transfer_total ?? '0');
     const grandTotal = cash + transfer;
 
-    const pct = (val: number) =>
-      grandTotal > 0 ? Math.round((val / grandTotal) * 1000) / 10 : 0;
+    const pct = (val: number) => (grandTotal > 0 ? Math.round((val / grandTotal) * 1000) / 10 : 0);
 
     return {
       cash: { total: cash, percentage: pct(cash) },
@@ -193,21 +197,25 @@ export class ReportsService {
    *   { rank: 2, productId: '...', name: 'Gatorade 500ml', qty: 35, revenue: 8750  },
    * ]
    */
-  async getProductsRanking(dto: ReportQueryDto): Promise<{
-    rank: number;
-    productId: string;
-    name: string;
-    qty: number;
-    revenue: number;
-  }[]> {
+  async getProductsRanking(dto: ReportQueryDto): Promise<
+    {
+      rank: number;
+      productId: string;
+      name: string;
+      qty: number;
+      revenue: number;
+    }[]
+  > {
     const { from, to } = this.resolveDateRange(dto);
 
-    const rows = await this.dataSource.query<{
-      product_id: string;
-      product_name: string;
-      qty: string;
-      revenue: string;
-    }[]>(
+    const rows = await this.dataSource.query<
+      {
+        product_id: string;
+        product_name: string;
+        qty: string;
+        revenue: string;
+      }[]
+    >(
       `WITH unified AS (
          -- Ventas del POS
          SELECT
@@ -282,28 +290,32 @@ export class ReportsService {
    *   ...
    * ]
    */
-  async getTransactionsExport(dto: ReportQueryDto): Promise<{
-    date: string;
-    time: string;
-    type: string;
-    concept: string;
-    cash: number;
-    transfer: number;
-    total: number;
-    createdBy: string;
-  }[]> {
-    const { from, to } = this.resolveDateRange(dto);
-
-    const rows = await this.dataSource.query<{
+  async getTransactionsExport(dto: ReportQueryDto): Promise<
+    {
       date: string;
       time: string;
       type: string;
       concept: string;
-      cash: string;
-      transfer: string;
-      total: string;
-      created_by: string;
-    }[]>(
+      cash: number;
+      transfer: number;
+      total: number;
+      createdBy: string;
+    }[]
+  > {
+    const { from, to } = this.resolveDateRange(dto);
+
+    const rows = await this.dataSource.query<
+      {
+        date: string;
+        time: string;
+        type: string;
+        concept: string;
+        cash: string;
+        transfer: string;
+        total: string;
+        created_by: string;
+      }[]
+    >(
       `SELECT
          (t.created_at AT TIME ZONE $1)::date::text                     AS date,
          TO_CHAR(t.created_at AT TIME ZONE $1, 'HH24:MI')               AS time,
@@ -352,14 +364,16 @@ export class ReportsService {
   }> {
     const { from, to } = this.resolveDateRange(dto);
 
-    const rows = await this.dataSource.query<{
-      total_revenue: string;
-      bookings_revenue: string;
-      sales_revenue: string;
-      cash_total: string;
-      transfer_total: string;
-      tx_count: string;
-    }[]>(
+    const rows = await this.dataSource.query<
+      {
+        total_revenue: string;
+        bookings_revenue: string;
+        sales_revenue: string;
+        cash_total: string;
+        transfer_total: string;
+        tx_count: string;
+      }[]
+    >(
       `SELECT
          COALESCE(SUM(amount_cash + amount_transfer), 0)                               AS total_revenue,
          COALESCE(SUM(CASE WHEN type = 'booking' THEN amount_cash + amount_transfer ELSE 0 END), 0) AS bookings_revenue,
