@@ -11,6 +11,7 @@ import * as bcrypt from 'bcrypt';
 import { User, UserRole } from './entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 
 const BCRYPT_ROUNDS = 10;
 
@@ -108,6 +109,40 @@ export class UsersService {
     const saved = await this.userRepo.save(user);
     const { passwordHash: _, ...result } = saved;
     return result as Omit<User, 'passwordHash'>;
+  }
+
+  /**
+   * Restablece la contraseña de un usuario por parte del Administrador.
+   * La nueva contraseña se hashea con bcrypt antes de persistirse.
+   * Nunca devuelve ni registra en logs el valor en texto plano.
+   */
+  async resetPassword(
+    id: string,
+    dto: ResetPasswordDto,
+    requestingUserId: string,
+  ): Promise<{ success: true; message: string }> {
+    if (id === requestingUserId) {
+      throw new ForbiddenException(
+        'Usá el perfil de tu cuenta para cambiar tu propia contraseña.',
+      );
+    }
+
+    const user = await this.userRepo.findOne({ where: { id } });
+
+    if (!user) {
+      throw new NotFoundException(`Usuario con ID ${id} no encontrado.`);
+    }
+
+    user.passwordHash = await bcrypt.hash(dto.newPassword, BCRYPT_ROUNDS);
+    user.mustChangePassword = true;
+    await this.userRepo.save(user);
+
+    // Log sin exponer la contraseña
+    this.logger.log(
+      `Contraseña restablecida para "${user.username}" por admin ${requestingUserId}`,
+    );
+
+    return { success: true, message: 'Contraseña actualizada' };
   }
 
   /** Desactiva un usuario (baja lógica). Protege al último administrador del sistema. */
