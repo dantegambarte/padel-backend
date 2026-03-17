@@ -214,7 +214,7 @@ export class ReportsService {
          t.amount_cash                                                   AS cash,
          t.amount_transfer                                               AS transfer,
          (t.amount_cash + t.amount_transfer)                            AS total,
-         u.username                                                      AS created_by
+         u.full_name                                                     AS created_by
        FROM transactions t
        JOIN users u ON u.id = t.created_by_user_id
        WHERE (t.created_at AT TIME ZONE $1)::date BETWEEN $2::date AND $3::date
