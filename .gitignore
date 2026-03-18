@@ -1,5 +1,6 @@
 # Dependencias
 node_modules/
+package-lock.json
 
 # Build
 dist/
@@ -25,6 +26,6 @@ Thumbs.db
 .idea/
 
 
-package-lock.json
-.package-lock.json
 .claude
+.agents
+skills-lock.json
