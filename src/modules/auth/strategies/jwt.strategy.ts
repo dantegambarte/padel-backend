@@ -10,6 +10,8 @@ export interface JwtPayload {
   sub: string;
   username: string;
   role: string;
+  /** Versión de sesión al momento de emitir el token. */
+  sv: number;
 }
 
 /**
@@ -30,16 +32,30 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     });
   }
 
-  /** Retorna el usuario autenticado o lanza UnauthorizedException si está inactivo. */
+  /**
+   * Valida el token JWT:
+   * 1. Verifica que el usuario exista y esté activo.
+   * 2. Compara `sv` (session version) del token con el valor en DB.
+   *    Si no coincide → alguien inició sesión desde otro dispositivo.
+   */
   async validate(payload: JwtPayload): Promise<User> {
     const user = await this.userRepo.findOne({
       where: { id: payload.sub },
-      select: ['id', 'username', 'fullName', 'role', 'isActive'],
+      select: ['id', 'username', 'fullName', 'role', 'isActive', 'sessionVersion'],
     });
 
     if (!user || !user.isActive) {
       throw new UnauthorizedException(
         'Usuario inactivo o no encontrado. Contacte al administrador.',
+      );
+    }
+
+    if (payload.sv !== user.sessionVersion) {
+      throw new UnauthorizedException(
+        JSON.stringify({
+          error: 'SESSION_OVERRIDDEN',
+          message: 'Sesión iniciada en otro dispositivo.',
+        }),
       );
     }
 
