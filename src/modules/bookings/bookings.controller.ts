@@ -25,6 +25,7 @@ import { BookingsService } from './bookings.service';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { UpdateBookingDto } from './dto/update-booking.dto';
 import { QueryBookingsDto } from './dto/query-bookings.dto';
+import { RescheduleBookingDto } from './dto/reschedule-booking.dto';
 
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -138,6 +139,50 @@ export class BookingsController {
     @CurrentUser() user: User,
   ) {
     return this.bookingsService.update(id, updateBookingDto, user);
+  }
+
+  /**
+   * POST /api/v1/bookings/:id/move
+   *
+   * Mueve un turno a otra cancha / fecha / hora.
+   * Verifica disponibilidad del slot destino (anti-overbooking).
+   *
+   * Acceso: Admin y Empleado.
+   */
+  @Post(':id/move')
+  @ApiOperation({ summary: 'Mover un turno a otro slot' })
+  @ApiParam({ name: 'id', type: 'string', format: 'uuid' })
+  @ApiResponse({ status: 200, description: 'Turno movido exitosamente.' })
+  @ApiResponse({ status: 409, description: 'Slot destino ya ocupado.' })
+  move(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RescheduleBookingDto,
+    @CurrentUser() user: User,
+  ) {
+    return this.bookingsService.move(id, dto, user);
+  }
+
+  /**
+   * POST /api/v1/bookings/:id/duplicate
+   *
+   * Duplica un turno existente en un slot diferente.
+   * El nuevo turno hereda clientName, priceType, durationMinutes e items.
+   * El pago del nuevo turno comienza en $0.
+   *
+   * Acceso: Admin y Empleado.
+   */
+  @Post(':id/duplicate')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Duplicar un turno en otro slot' })
+  @ApiParam({ name: 'id', type: 'string', format: 'uuid' })
+  @ApiResponse({ status: 201, description: 'Turno duplicado exitosamente.' })
+  @ApiResponse({ status: 409, description: 'Slot destino ya ocupado.' })
+  duplicate(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RescheduleBookingDto,
+    @CurrentUser() user: User,
+  ) {
+    return this.bookingsService.duplicate(id, dto, user);
   }
 
   /**
