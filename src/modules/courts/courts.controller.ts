@@ -3,11 +3,14 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Body,
   Param,
   Query,
   UseGuards,
   ParseUUIDPipe,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { CourtsService } from './courts.service';
@@ -56,5 +59,14 @@ export class CourtsController {
   @ApiOperation({ summary: 'Actualizar una cancha (solo admin)' })
   update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateCourtDto) {
     return this.courtsService.update(id, dto);
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Eliminar una cancha (solo admin)' })
+  remove(@Param('id', ParseUUIDPipe) id: string) {
+    return this.courtsService.remove(id);
   }
 }
