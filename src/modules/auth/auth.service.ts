@@ -31,7 +31,7 @@ export class AuthService {
   async validateUser(username: string, password: string): Promise<User> {
     const user = await this.userRepo.findOne({
       where: { username: username.toLowerCase().trim() },
-      select: ['id', 'username', 'fullName', 'role', 'isActive', 'mustChangePassword', 'passwordHash'],
+      select: ['id', 'username', 'fullName', 'role', 'isActive', 'mustChangePassword', 'passwordHash', 'sessionVersion'],
     });
 
     if (!user) {
@@ -54,15 +54,20 @@ export class AuthService {
   async login(loginDto: LoginDto) {
     const user = await this.validateUser(loginDto.username, loginDto.password);
 
+    // Incrementar sessionVersion para invalidar cualquier sesión anterior
+    await this.userRepo.increment({ id: user.id }, 'sessionVersion', 1);
+    const newVersion = (user.sessionVersion ?? 1) + 1;
+
     const payload: JwtPayload = {
       sub: user.id,
       username: user.username,
       role: user.role,
+      sv: newVersion,
     };
 
     const [accessToken, refreshToken] = await this.signTokenPair(payload);
 
-    this.logger.log(`Login exitoso: ${user.username} (${user.role})`);
+    this.logger.log(`Login exitoso: ${user.username} (${user.role}) — sessionVersion=${newVersion}`);
 
     return {
       accessToken,
@@ -103,17 +108,21 @@ export class AuthService {
 
       const user = await this.userRepo.findOne({
         where: { id: payload.sub },
-        select: ['id', 'username', 'fullName', 'role', 'isActive'],
+        select: ['id', 'username', 'fullName', 'role', 'isActive', 'sessionVersion'],
       });
 
       if (!user || !user.isActive) {
         throw new UnauthorizedException('Sesión inválida.');
       }
 
+      // El refresh token rota pero mantiene la sessionVersion actual de DB
+      // (si el usuario volvió a loguearse en otro dispositivo, sv no coincidirá
+      //  en la siguiente request protegida y será rechazada allí)
       const newPayload: JwtPayload = {
         sub: user.id,
         username: user.username,
         role: user.role,
+        sv: user.sessionVersion,
       };
 
       const [newAccessToken, newRefreshToken] = await this.signTokenPair(newPayload);

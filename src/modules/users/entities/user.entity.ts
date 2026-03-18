@@ -36,6 +36,13 @@ export class User {
   @Column({ name: 'must_change_password', type: 'boolean', default: false })
   mustChangePassword: boolean;
 
+  /**
+   * Versión de sesión activa. Se incrementa en cada login para invalidar
+   * tokens emitidos en sesiones anteriores (single-session enforcement).
+   */
+  @Column({ name: 'session_version', type: 'int', default: 1 })
+  sessionVersion: number;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

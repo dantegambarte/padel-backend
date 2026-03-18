@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Court } from './entities/court.entity';
@@ -43,5 +43,22 @@ export class CourtsService {
     const court = await this.findOne(id);
     Object.assign(court, dto);
     return this.courtRepo.save(court);
+  }
+
+  /** Elimina una cancha si no tiene turnos asociados. */
+  async remove(id: string): Promise<{ deleted: true }> {
+    const court = await this.findOne(id);
+    const bookingCount = await this.courtRepo
+      .createQueryBuilder('court')
+      .innerJoin('court.bookings', 'booking')
+      .where('court.id = :id', { id })
+      .getCount();
+    if (bookingCount > 0) {
+      throw new BadRequestException(
+        'No se puede eliminar la cancha porque tiene turnos asociados. Te recomendamos inactivarla.',
+      );
+    }
+    await this.courtRepo.remove(court);
+    return { deleted: true };
   }
 }
