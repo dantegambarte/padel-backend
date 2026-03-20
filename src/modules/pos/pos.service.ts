@@ -1,6 +1,7 @@
 import {
   Injectable,
   BadRequestException,
+  ConflictException,
   NotFoundException,
   Logger,
   InternalServerErrorException,
@@ -11,6 +12,7 @@ import { DataSource, Repository } from 'typeorm';
 import { Sale } from './entities/sale.entity';
 import { SaleItem } from './entities/sale-item.entity';
 import { Product } from '../products/entities/product.entity';
+import { ProductCategory } from '../products/entities/product-category.entity';
 import { User } from '../users/entities/user.entity';
 import { CreateSaleDto, SaleItemInputDto } from './dto/create-sale.dto';
 import { CashRegisterService } from '../cash-register/cash-register.service';
@@ -81,7 +83,7 @@ export class PosService {
         );
       }
 
-      const session = await this.cashRegisterService.getOrCreateActiveSession(queryRunner, user.id);
+      const session = await this.cashRegisterService.getActiveSessionOrFail(queryRunner, user.id);
 
       const sale = queryRunner.manager.create(Sale, {
         createdByUserId: user.id,
@@ -107,12 +109,14 @@ export class PosService {
       await queryRunner.manager.save(SaleItem, saleItems);
 
       for (const item of resolvedItems) {
-        await queryRunner.manager.decrement(
-          Product,
-          { id: item.productId },
-          'stock',
-          item.quantity,
-        );
+        if (!item.isRental) {
+          await queryRunner.manager.decrement(
+            Product,
+            { id: item.productId },
+            'stock',
+            item.quantity,
+          );
+        }
       }
 
       await this.cashRegisterService.registerTransaction(queryRunner, {
@@ -154,8 +158,20 @@ export class PosService {
   }
 
   /**
-   * Bloquea cada producto con SELECT FOR UPDATE, valida stock
-   * y captura el precio snapshot del momento de la transacción.
+   * Devuelve `true` si la categoría es de alquiler (servicio sin stock finito).
+   * Usa el campo `isRental` de la entidad como fuente de verdad.
+   * Fallback: coincidencia exacta con "alquileres" para categorías anteriores a la migración.
+   */
+  private isCategoryRental(category: ProductCategory | null): boolean {
+    if (!category) return false;
+    if (category.isRental) return true;
+    return category.name.trim().toLowerCase() === 'alquileres';
+  }
+
+  /**
+   * Bloquea cada producto con SELECT FOR UPDATE **sin joins** para respetar la restricción
+   * de PostgreSQL que prohíbe FOR UPDATE en el lado nullable de un outer join (error 0A000).
+   * La categoría se carga en una consulta separada sin lock.
    */
   private async resolveItemsWithLock(
     items: SaleItemInputDto[],
@@ -166,6 +182,7 @@ export class PosService {
       productName: string;
       quantity: number;
       unitPrice: number;
+      isRental: boolean;
     }[]
   > {
     const productIds = items.map((i) => i.productId);
@@ -182,9 +199,11 @@ export class PosService {
       productName: string;
       quantity: number;
       unitPrice: number;
+      isRental: boolean;
     }[] = [];
 
     for (const item of items) {
+      // Paso 1: bloquear la fila del producto SIN joins (FOR UPDATE + LEFT JOIN no es válido en PG)
       const product = await queryRunner.manager.findOne(Product, {
         where: { id: item.productId, isActive: true },
         lock: { mode: 'pessimistic_write' },
@@ -197,8 +216,17 @@ export class PosService {
         );
       }
 
-      if (product.stock < item.quantity) {
-        throw new BadRequestException(
+      // Paso 2: cargar la categoría sin lock solo para el chequeo de alquiler
+      const category = product.categoryId
+        ? await queryRunner.manager.findOne(ProductCategory, {
+            where: { id: product.categoryId },
+          })
+        : null;
+
+      const rental = this.isCategoryRental(category);
+
+      if (!rental && product.stock < item.quantity) {
+        throw new ConflictException(
           `Stock insuficiente para "${product.name}". ` +
             `Disponible: ${product.stock} unidad(es), solicitado: ${item.quantity}.`,
         );
@@ -209,6 +237,7 @@ export class PosService {
         productName: product.name,
         quantity: item.quantity,
         unitPrice: Number(product.salePrice),
+        isRental: rental,
       });
     }
 
