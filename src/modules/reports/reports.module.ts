@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ReportsController } from './reports.controller';
 import { ReportsService } from './reports.service';
+import { CashRegisterModule } from '../cash-register/cash-register.module';
 
-// ReportsService usa InjectDataSource directamente (raw SQL),
-// no necesita repositorios TypeORM ni importar otros módulos.
 @Module({
+  imports: [CashRegisterModule],
   controllers: [ReportsController],
   providers: [ReportsService],
 })

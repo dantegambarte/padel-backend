@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { ReportQueryDto } from './dto/report-query.dto';
+import { CashRegisterService } from '../cash-register/cash-register.service';
 
 @Injectable()
 export class ReportsService {
@@ -11,6 +12,7 @@ export class ReportsService {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly cashRegisterService: CashRegisterService,
   ) {}
 
   /**
@@ -231,6 +233,64 @@ export class ReportsService {
       transfer: parseFloat(r.transfer),
       total: parseFloat(r.total),
       createdBy: r.created_by,
+    }));
+  }
+
+  /**
+   * KPIs de la jornada activa para el Dashboard Admin.
+   * Delega a CashRegisterService para que las métricas reflejen
+   * la sesión OPEN actual (no el día calendario), garantizando que
+   * el cruce de medianoche no rompa la contabilidad del turno.
+   */
+  async getTodayKpis(): Promise<{
+    totalRevenue: number;
+    cashTotal: number;
+    transferTotal: number;
+    completedBookings: number;
+    totalSlots: number;
+    occupationRate: number;
+    productsSold: number;
+  }> {
+    const kpis = await this.cashRegisterService.getActiveSessionKpis();
+    return {
+      totalRevenue: kpis.totalRevenue,
+      cashTotal: kpis.cashTotal,
+      transferTotal: kpis.transferTotal,
+      completedBookings: kpis.completedBookings,
+      totalSlots: kpis.totalSlots,
+      occupationRate: kpis.occupationRate,
+      productsSold: kpis.productsSold,
+    };
+  }
+
+  /**
+   * Ingresos de los últimos 7 días desglosados en Efectivo y Transferencia.
+   * Alimenta el gráfico de barras del Dashboard Admin.
+   */
+  async getLast7DaysRevenue(): Promise<
+    { date: string; cash: number; transfer: number; total: number }[]
+  > {
+    const rows = await this.dataSource.query<
+      { date: string; cash: string; transfer: string }[]
+    >(
+      `SELECT
+         (created_at AT TIME ZONE $1)::date::text                  AS date,
+         COALESCE(SUM(amount_cash),                           0)   AS cash,
+         COALESCE(SUM(amount_transfer),                       0)   AS transfer
+       FROM transactions
+       WHERE (created_at AT TIME ZONE $1)::date
+             BETWEEN (CURRENT_DATE AT TIME ZONE $1)::date - 6
+             AND     (CURRENT_DATE AT TIME ZONE $1)::date
+       GROUP BY 1
+       ORDER BY 1`,
+      [this.TZ],
+    );
+
+    return rows.map((r) => ({
+      date: r.date,
+      cash: parseFloat(r.cash),
+      transfer: parseFloat(r.transfer),
+      total: parseFloat(r.cash) + parseFloat(r.transfer),
     }));
   }
 

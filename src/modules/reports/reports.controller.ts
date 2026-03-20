@@ -16,6 +16,34 @@ export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
 
   /**
+   * GET /api/v1/reports/today-kpis
+   *
+   * KPIs del día actual para el Dashboard Admin:
+   *   - Ingresos totales de hoy (efectivo + transferencia)
+   *   - Turnos completados y tasa de ocupación
+   *   - Unidades de productos vendidos
+   */
+  @Get('today-kpis')
+  @ApiOperation({ summary: 'KPIs de hoy para el Dashboard Admin' })
+  @ApiResponse({ status: 200, description: 'Métricas del día actual.' })
+  getTodayKpis() {
+    return this.reportsService.getTodayKpis();
+  }
+
+  /**
+   * GET /api/v1/reports/last7days
+   *
+   * Ingresos de los últimos 7 días desglosados en Efectivo y Transferencia.
+   * Alimenta el gráfico de barras del Dashboard Admin.
+   */
+  @Get('last7days')
+  @ApiOperation({ summary: 'Ingresos de los últimos 7 días por método de pago' })
+  @ApiResponse({ status: 200, description: 'Array de días con cash/transfer/total.' })
+  getLast7DaysRevenue() {
+    return this.reportsService.getLast7DaysRevenue();
+  }
+
+  /**
    * GET /api/v1/reports/summary
    *
    * Cards del dashboard de reportes: totales agregados del período.
