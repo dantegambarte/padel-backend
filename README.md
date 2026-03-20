@@ -105,6 +105,9 @@ src/
 ├── database/
 │   ├── data-source.ts             # DataSource para migraciones CLI
 │   ├── migrations/
+│   │   ├── 1000000000001-AddIdempotencyKeyToSales.ts
+│   │   ├── 1000000000002-AddSessionVersionToUsers.ts
+│   │   └── 1000000000003-DropUniqueDateCashSessions.ts
 │   └── seed.ts                    # Seed inicial (admin + config)
 └── modules/
     ├── auth/
@@ -196,6 +199,7 @@ Gestión de sesión y tokens JWT.
 | POST | `/auth/login` | Público | Login con username/password |
 | POST | `/auth/refresh` | Público | Renovar par de tokens |
 | GET | `/auth/me` | Autenticado | Perfil del usuario actual |
+| PATCH | `/auth/me/password` | Autenticado | Cambiar contraseña propia |
 
 **Rate limits:** login → 5 req/min · refresh → 20 req/min
 
@@ -216,6 +220,11 @@ Refresh → nuevo access_token + nuevo refresh_token (rotación)
 }
 ```
 
+**Cambio de contraseña propia (`PATCH /auth/me/password`):**
+- Requiere la contraseña actual para verificar identidad
+- Limpia el flag `mustChangePassword` al completar
+- Invalida todas las sesiones anteriores (incrementa `sessionVersion`)
+
 ---
 
 ### Users
@@ -227,12 +236,14 @@ Gestión de usuarios del sistema. Solo **ADMIN**.
 | GET | `/users` | Listar todos los usuarios |
 | GET | `/users/:id` | Detalle de un usuario |
 | POST | `/users` | Crear usuario (ADMIN o EMPLOYEE) |
-| PATCH | `/users/:id` | Actualizar nombre, contraseña o estado |
+| PATCH | `/users/:id` | Actualizar nombre o estado |
+| PATCH | `/users/:id/reset-password` | Restablecer contraseña (admin fuerza nueva clave) |
 | DELETE | `/users/:id` | Desactivar usuario (soft delete) |
 
 **Reglas de negocio:**
 - No se puede desactivar la propia cuenta
 - No se puede desactivar al último administrador activo
+- `reset-password` activa el flag `mustChangePassword` → el usuario deberá cambiarla en su próximo login
 - Las contraseñas se guardan con bcrypt (10 rounds), nunca en texto plano
 
 ---
@@ -260,6 +271,8 @@ Módulo más complejo del sistema. Gestiona reservas con **anti-overbooking de d
 | GET | `/bookings/:id` | Todos | Detalle de reserva |
 | POST | `/bookings` | Todos | Crear reserva |
 | PATCH | `/bookings/:id` | Todos | Actualizar reserva |
+| POST | `/bookings/:id/move` | Todos | Mover reserva a otro slot |
+| POST | `/bookings/:id/duplicate` | Todos | Duplicar reserva en otro slot |
 | DELETE | `/bookings/:id` | Admin | Cancelar reserva |
 
 **Máquina de estados:**
@@ -273,6 +286,16 @@ BOOKED ──► PLAYING ──► COMPLETED  (terminal)
 **Anti-overbooking (dos capas):**
 1. **Advisory Lock PostgreSQL** — `pg_advisory_xact_lock()` sobre el hash del slot (cancha + fecha + hora), serializa solicitudes concurrentes
 2. **Constraint UNIQUE** en DB — `(court_id, date, hour)`, segunda red de seguridad a nivel base de datos
+
+**Mover turno (`POST /bookings/:id/move`):**
+- Traslada la reserva a otra cancha / fecha / hora
+- Verifica disponibilidad del slot destino con anti-overbooking
+- Conserva todos los datos originales (cliente, productos, pago)
+
+**Duplicar turno (`POST /bookings/:id/duplicate`):**
+- Crea una nueva reserva en otro slot copiando `clientName`, `priceType`, `durationMinutes` e items
+- El pago del nuevo turno comienza en $0
+- El slot original permanece sin cambios
 
 **Flujo transaccional de creación:**
 ```
@@ -336,15 +359,24 @@ Punto de venta directa de productos (sin reserva).
 | GET | `/sales?date=YYYY-MM-DD` | Todos | Ventas del día |
 | POST | `/sales` | Todos | Registrar venta |
 
+**Header de idempotencia:**
+
+```
+X-Idempotency-Key: <uuid-generado-por-el-cliente>
+```
+
+El frontend genera un UUID por intento de venta. Si la misma clave llega dos veces (doble clic, retry por red lenta), el backend retorna la venta ya creada sin volver a descontar stock ni registrar en caja.
+
 **Flujo transaccional:**
 ```
-1. SELECT FOR UPDATE en cada producto
-2. Validar stock disponible
-3. Snapshot de precio (unitPrice)
-4. Crear Sale + SaleItems
-5. Decrementar stock atómicamente
-6. Registrar en caja
-7. COMMIT — o ROLLBACK total
+1. Verificar clave de idempotencia (si existe → retornar venta original)
+2. SELECT FOR UPDATE en cada producto
+3. Validar stock disponible
+4. Snapshot de precio (unitPrice)
+5. Crear Sale + SaleItems (con idempotency_key)
+6. Decrementar stock atómicamente
+7. Registrar en caja
+8. COMMIT — o ROLLBACK total
 ```
 
 **Validaciones:**
@@ -361,22 +393,38 @@ Gestión de sesiones de caja diaria. Todas las operaciones (reservas y ventas) r
 | Método | Endpoint | Acceso | Descripción |
 |--------|----------|--------|-------------|
 | GET | `/cash/current?date=YYYY-MM-DD` | Todos | Estado y totales de la caja |
+| POST | `/cash/open` | Todos | Apertura manual de jornada |
 | POST | `/cash/close` | Todos | Cierre Z (cierre del día) |
 
 **Flujo de sesión:**
 ```
-Primera operación del día
+POST /cash/open  (empleado declara fondo inicial)
         │
-        ▼ (advisory lock para evitar duplicados)
+        ▼
    CashSession OPEN  ◄─── Bookings y Sales registran transacciones
         │
-        ▼ (Cierre Z)
+        ▼ POST /cash/close (Cierre Z)
    CashSession CLOSED ──► No se permiten más operaciones (503)
 ```
 
+**Apertura de caja (`POST /cash/open`):**
+- El empleado declara el fondo inicial (cambio/vuelto disponible)
+- El fondo es solo referencia operativa, no entra en el arqueo
+- Falla con 409 si ya existe una sesión abierta
+
+**Sesiones múltiples por día:**
+- Se eliminó el constraint UNIQUE en `date` de `cash_sessions`
+- La unicidad real es "solo una sesión OPEN a la vez" (validado a nivel de aplicación)
+- Permite turnos mañana/tarde con sesiones independientes
+
+**GET `/cash/current`:**
+- Sin `?date` → devuelve la sesión OPEN activa (aunque haya cruzado la medianoche)
+- Con `?date` → consulta histórica de ese día comercial
+- Si no hay sesión → `session: null` (frontend muestra pantalla de apertura)
+
 **Entidades:**
 
-- `CashSession` — sesión diaria con totales, diferencia de caja y notas de cierre
+- `CashSession` — sesión diaria con fondo inicial, totales, diferencia de caja y notas de cierre
 - `Transaction` — registro polimórfico de cada movimiento (tipo: `BOOKING` | `SALE`)
 
 **Respuesta de `/cash/current`:**
@@ -470,8 +518,12 @@ User ──< Booking >── Court
 - **Algoritmo:** HS256
 - **Access token:** 8 horas
 - **Refresh token:** 7 días (secret independiente)
-- **Payload:** `{ sub, username, role }`
+- **Payload:** `{ sub, username, role, sessionVersion }`
 - **Rotación:** cada refresh genera un par de tokens completamente nuevo
+
+### Sesión única (single-session enforcement)
+
+Cada usuario tiene un `sessionVersion` en DB. Cada login lo incrementa e incluye ese valor en el JWT. El `JwtStrategy` compara el valor del token con el de la DB en cada request — si no coincide (el usuario inició sesión en otro dispositivo o el admin reseteó la clave), el request se rechaza con `SESSION_OVERRIDDEN`.
 
 ### Guards (aplicados globalmente)
 
@@ -487,6 +539,7 @@ User ──< Booking >── Court
 - El strategy JWT recarga el usuario desde DB en cada request (detecta cuentas desactivadas)
 - Contraseñas nunca expuestas en respuestas (`passwordHash` excluida)
 - ValidationPipe global con `whitelist: true` (descarta campos no declarados en DTOs)
+- Flag `mustChangePassword`: activo cuando un admin resetea la clave de otro usuario
 
 ### Formato de error uniforme
 
@@ -529,6 +582,14 @@ Antes de decrementar stock en ventas y reservas, se bloquea la fila del producto
 ### 6. Transacciones polimórficas
 
 `Transaction.type` (`BOOKING` | `SALE`) + `referenceId` permiten una tabla unificada de movimientos de caja extensible sin modificar el esquema.
+
+### 7. Idempotencia en ventas
+
+`Sale.idempotency_key` (UUID, UNIQUE, nullable) permite detectar y rechazar ventas duplicadas por doble clic o retry de red. El frontend envía el UUID por header `X-Idempotency-Key`; si la clave ya existe, se retorna la venta original sin ejecutar ninguna lógica de negocio.
+
+### 8. Sesión única por usuario
+
+`User.sessionVersion` se incrementa en cada login. El JWT payload incluye este valor y el strategy lo valida en cada request, garantizando que un nuevo login invalide automáticamente todos los tokens anteriores del mismo usuario.
 
 ---
 
