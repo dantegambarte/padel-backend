@@ -7,7 +7,7 @@ import * as bcrypt from 'bcrypt';
 import { AuthService } from './auth.service';
 import { User, UserRole } from '../users/entities/user.entity';
 
-const mockUser = (): Partial<User> => ({
+const mockUser = (overrides: Partial<User> = {}): Partial<User> => ({
   id: 'user-uuid',
   username: 'admin',
   fullName: 'Admin Test',
@@ -15,6 +15,8 @@ const mockUser = (): Partial<User> => ({
   isActive: true,
   mustChangePassword: false,
   passwordHash: 'hashed_password',
+  sessionVersion: 3,
+  ...overrides,
 });
 
 describe('AuthService', () => {
@@ -23,6 +25,7 @@ describe('AuthService', () => {
   const userRepo = {
     findOne: jest.fn(),
     save: jest.fn(),
+    increment: jest.fn(),
   };
 
   const jwtService = {
@@ -48,7 +51,10 @@ describe('AuthService', () => {
     jest.clearAllMocks();
     jwtService.signAsync.mockResolvedValue('signed_token');
     configService.get.mockReturnValue('test_secret');
+    userRepo.increment.mockResolvedValue({});
   });
+
+  // ─── validateUser ─────────────────────────────────────────────────────────
 
   describe('validateUser', () => {
     it('lanza UnauthorizedException si el usuario no existe', async () => {
@@ -57,7 +63,7 @@ describe('AuthService', () => {
     });
 
     it('lanza UnauthorizedException si el usuario está inactivo', async () => {
-      userRepo.findOne.mockResolvedValue({ ...mockUser(), isActive: false });
+      userRepo.findOne.mockResolvedValue(mockUser({ isActive: false }));
       await expect(service.validateUser('admin', 'pass')).rejects.toThrow(UnauthorizedException);
     });
 
@@ -83,6 +89,8 @@ describe('AuthService', () => {
     });
   });
 
+  // ─── login ────────────────────────────────────────────────────────────────
+
   describe('login', () => {
     it('retorna accessToken, refreshToken y datos del usuario', async () => {
       userRepo.findOne.mockResolvedValue(mockUser());
@@ -96,23 +104,69 @@ describe('AuthService', () => {
     });
 
     it('incluye mustChangePassword en la respuesta', async () => {
-      userRepo.findOne.mockResolvedValue({ ...mockUser(), mustChangePassword: true });
+      userRepo.findOne.mockResolvedValue(mockUser({ mustChangePassword: true }));
       jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
 
       const result = await service.login({ username: 'admin', password: 'pass' });
       expect(result.user.mustChangePassword).toBe(true);
     });
+
+    it('incluye mustChangePassword: false cuando no está activo el flag', async () => {
+      userRepo.findOne.mockResolvedValue(mockUser({ mustChangePassword: false }));
+      jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
+
+      const result = await service.login({ username: 'admin', password: 'pass' });
+      expect(result.user.mustChangePassword).toBe(false);
+    });
+
+    it('NO incrementa sessionVersion en login normal (permite sesiones concurrentes)', async () => {
+      userRepo.findOne.mockResolvedValue(mockUser({ sessionVersion: 2 }));
+      jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
+
+      await service.login({ username: 'admin', password: 'pass' });
+
+      expect(userRepo.increment).not.toHaveBeenCalled();
+    });
+
+    it('firma el token con el payload correcto incluyendo sv', async () => {
+      userRepo.findOne.mockResolvedValue(mockUser({ sessionVersion: 5 }));
+      jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
+
+      await service.login({ username: 'admin', password: 'pass' });
+
+      expect(jwtService.signAsync).toHaveBeenCalledWith(
+        expect.objectContaining({ sub: 'user-uuid', sv: 5 }),
+        expect.any(Object),
+      );
+    });
   });
+
+  // ─── refreshToken ─────────────────────────────────────────────────────────
 
   describe('refreshToken', () => {
     it('retorna nuevo par de tokens si el refresh token es válido', async () => {
       const user = mockUser();
-      jwtService.verifyAsync.mockResolvedValue({ sub: user.id, username: user.username, role: user.role });
+      jwtService.verifyAsync.mockResolvedValue({
+        sub: user.id, username: user.username, role: user.role, sv: user.sessionVersion,
+      });
       userRepo.findOne.mockResolvedValue(user);
 
       const result = await service.refreshToken('valid_refresh');
       expect(result).toHaveProperty('accessToken');
       expect(result).toHaveProperty('refreshToken');
+    });
+
+    it('el nuevo token incluye la sessionVersion actual de la DB', async () => {
+      const user = mockUser({ sessionVersion: 7 });
+      jwtService.verifyAsync.mockResolvedValue({ sub: user.id, sv: 5 });
+      userRepo.findOne.mockResolvedValue(user);
+
+      await service.refreshToken('valid_refresh');
+
+      expect(jwtService.signAsync).toHaveBeenCalledWith(
+        expect.objectContaining({ sv: 7 }),
+        expect.any(Object),
+      );
     });
 
     it('lanza UnauthorizedException si el token es inválido', async () => {
@@ -121,11 +175,19 @@ describe('AuthService', () => {
     });
 
     it('lanza UnauthorizedException si el usuario está inactivo', async () => {
-      jwtService.verifyAsync.mockResolvedValue({ sub: 'uid', username: 'x', role: 'admin' });
-      userRepo.findOne.mockResolvedValue({ ...mockUser(), isActive: false });
+      jwtService.verifyAsync.mockResolvedValue({ sub: 'uid', username: 'x', role: 'admin', sv: 1 });
+      userRepo.findOne.mockResolvedValue(mockUser({ isActive: false }));
+      await expect(service.refreshToken('token')).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('lanza UnauthorizedException si el usuario no existe en DB', async () => {
+      jwtService.verifyAsync.mockResolvedValue({ sub: 'uid', sv: 1 });
+      userRepo.findOne.mockResolvedValue(null);
       await expect(service.refreshToken('token')).rejects.toThrow(UnauthorizedException);
     });
   });
+
+  // ─── getProfile ───────────────────────────────────────────────────────────
 
   describe('getProfile', () => {
     it('retorna el usuario autenticado', async () => {
@@ -139,6 +201,8 @@ describe('AuthService', () => {
       await expect(service.getProfile('missing-uuid')).rejects.toThrow(UnauthorizedException);
     });
   });
+
+  // ─── changeOwnPassword ────────────────────────────────────────────────────
 
   describe('changeOwnPassword', () => {
     it('actualiza la contraseña si la actual es correcta y la nueva es diferente', async () => {
@@ -154,7 +218,40 @@ describe('AuthService', () => {
       });
 
       expect(result.success).toBe(true);
-      expect(userRepo.save).toHaveBeenCalledWith(expect.objectContaining({ mustChangePassword: false }));
+      expect(userRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ mustChangePassword: false }),
+      );
+    });
+
+    it('limpia el flag mustChangePassword al cambiar la contraseña', async () => {
+      const user = { ...mockUser({ mustChangePassword: true }) };
+      userRepo.findOne.mockResolvedValue(user);
+      userRepo.save.mockResolvedValue(user);
+      jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
+      jest.spyOn(bcrypt, 'hash').mockResolvedValue('new_hash' as never);
+
+      await service.changeOwnPassword('user-uuid', {
+        currentPassword: 'current',
+        newPassword: 'newpass123',
+      });
+
+      expect(userRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ mustChangePassword: false }),
+      );
+    });
+
+    it('retorna mensaje de confirmación', async () => {
+      userRepo.findOne.mockResolvedValue(mockUser());
+      userRepo.save.mockResolvedValue(mockUser());
+      jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
+      jest.spyOn(bcrypt, 'hash').mockResolvedValue('new_hash' as never);
+
+      const result = await service.changeOwnPassword('user-uuid', {
+        currentPassword: 'current',
+        newPassword: 'diferente123',
+      });
+
+      expect(result).toEqual({ success: true, message: expect.any(String) });
     });
 
     it('lanza BadRequestException si la contraseña actual es incorrecta', async () => {

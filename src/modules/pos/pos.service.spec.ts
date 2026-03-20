@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import {
   NotFoundException,
   BadRequestException,
-  InternalServerErrorException,
+  ConflictException,
 } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -64,7 +64,7 @@ describe('PosService', () => {
   };
 
   const cashRegisterService = {
-    getOrCreateActiveSession: jest.fn().mockResolvedValue({ id: 'session-uuid' }),
+    getActiveSessionOrFail: jest.fn().mockResolvedValue({ id: 'session-uuid' }),
     registerTransaction: jest.fn().mockResolvedValue({}),
   };
 
@@ -91,7 +91,7 @@ describe('PosService', () => {
     mockQb.leftJoinAndSelect.mockReturnThis();
     mockQb.where.mockReturnThis();
     mockQb.orderBy.mockReturnThis();
-    cashRegisterService.getOrCreateActiveSession.mockResolvedValue({ id: 'session-uuid' });
+    cashRegisterService.getActiveSessionOrFail.mockResolvedValue({ id: 'session-uuid' });
     cashRegisterService.registerTransaction.mockResolvedValue({});
   });
 
@@ -169,7 +169,7 @@ describe('PosService', () => {
   });
 
   describe('create - stock insuficiente', () => {
-    it('lanza BadRequestException si el stock es menor al solicitado', async () => {
+    it('lanza ConflictException si el stock es menor al solicitado', async () => {
       saleRepo.findOne.mockResolvedValueOnce(null);
 
       const product = { id: 'p1', name: 'Pelota', salePrice: 1500, stock: 1, isActive: true };
@@ -180,7 +180,7 @@ describe('PosService', () => {
           { items: [{ productId: 'p1', quantity: 5 }], amountCash: 99999 },
           mockUser(),
         ),
-      ).rejects.toThrow(BadRequestException);
+      ).rejects.toThrow(ConflictException);
     });
   });
 

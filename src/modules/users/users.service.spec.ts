@@ -16,6 +16,7 @@ const mockUser = (overrides: Partial<User> = {}): User =>
     fullName: 'Empleado Test',
     role: UserRole.EMPLOYEE,
     isActive: true,
+    mustChangePassword: false,
     passwordHash: 'hashed',
     createdAt: new Date(),
     ...overrides,
@@ -44,6 +45,8 @@ describe('UsersService', () => {
     jest.clearAllMocks();
   });
 
+  // ─── findAll ──────────────────────────────────────────────────────────────
+
   describe('findAll', () => {
     it('retorna lista de usuarios', async () => {
       userRepo.find.mockResolvedValue([mockUser()]);
@@ -51,6 +54,8 @@ describe('UsersService', () => {
       expect(result).toHaveLength(1);
     });
   });
+
+  // ─── findOne ──────────────────────────────────────────────────────────────
 
   describe('findOne', () => {
     it('retorna el usuario si existe', async () => {
@@ -64,6 +69,8 @@ describe('UsersService', () => {
       await expect(service.findOne('missing')).rejects.toThrow(NotFoundException);
     });
   });
+
+  // ─── create ───────────────────────────────────────────────────────────────
 
   describe('create', () => {
     it('crea un usuario nuevo correctamente', async () => {
@@ -103,13 +110,15 @@ describe('UsersService', () => {
     });
   });
 
+  // ─── update ───────────────────────────────────────────────────────────────
+
   describe('update', () => {
     it('actualiza los campos permitidos', async () => {
       const user = mockUser();
       userRepo.findOne.mockResolvedValue(user);
       userRepo.save.mockResolvedValue({ ...user, fullName: 'Nuevo Nombre' });
 
-      const result = await service.update('user-uuid', { fullName: 'Nuevo Nombre' }, 'admin-uuid');
+      await service.update('user-uuid', { fullName: 'Nuevo Nombre' }, 'admin-uuid');
       expect(userRepo.save).toHaveBeenCalled();
     });
 
@@ -126,6 +135,67 @@ describe('UsersService', () => {
     });
   });
 
+  // ─── resetPassword ────────────────────────────────────────────────────────
+
+  describe('resetPassword', () => {
+    it('restablece la contraseña y activa mustChangePassword', async () => {
+      const user = mockUser({ mustChangePassword: false });
+      userRepo.findOne.mockResolvedValue(user);
+      userRepo.save.mockResolvedValue(user);
+      jest.spyOn(bcrypt, 'hash').mockResolvedValue('new_hashed' as never);
+
+      const result = await service.resetPassword(
+        'user-uuid',
+        { newPassword: 'NuevaClave123' },
+        'admin-uuid',
+      );
+
+      expect(result.success).toBe(true);
+      expect(userRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ mustChangePassword: true }),
+      );
+    });
+
+    it('hashea la nueva contraseña antes de persistirla', async () => {
+      const user = mockUser();
+      userRepo.findOne.mockResolvedValue(user);
+      userRepo.save.mockResolvedValue(user);
+      const hashSpy = jest.spyOn(bcrypt, 'hash').mockResolvedValue('hashed_new' as never);
+
+      await service.resetPassword('user-uuid', { newPassword: 'plain' }, 'admin-uuid');
+
+      expect(hashSpy).toHaveBeenCalledWith('plain', expect.any(Number));
+      expect(userRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ passwordHash: 'hashed_new' }),
+      );
+    });
+
+    it('lanza ForbiddenException si el admin intenta resetear su propia contraseña', async () => {
+      await expect(
+        service.resetPassword('admin-uuid', { newPassword: 'nueva' }, 'admin-uuid'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('lanza NotFoundException si el usuario objetivo no existe', async () => {
+      userRepo.findOne.mockResolvedValue(null);
+      await expect(
+        service.resetPassword('missing-uuid', { newPassword: 'nueva' }, 'admin-uuid'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('retorna mensaje de confirmación', async () => {
+      userRepo.findOne.mockResolvedValue(mockUser());
+      userRepo.save.mockResolvedValue(mockUser());
+      jest.spyOn(bcrypt, 'hash').mockResolvedValue('hashed' as never);
+
+      const result = await service.resetPassword('user-uuid', { newPassword: 'pass' }, 'admin-uuid');
+
+      expect(result).toEqual({ success: true, message: expect.any(String) });
+    });
+  });
+
+  // ─── deactivate ───────────────────────────────────────────────────────────
+
   describe('deactivate', () => {
     it('desactiva al usuario correctamente', async () => {
       const user = mockUser({ role: UserRole.EMPLOYEE });
@@ -140,10 +210,20 @@ describe('UsersService', () => {
       await expect(service.deactivate('same-uuid', 'same-uuid')).rejects.toThrow(ForbiddenException);
     });
 
-    it('lanza ForbiddenException si es el último administrador', async () => {
+    it('lanza ForbiddenException si es el último administrador activo', async () => {
       userRepo.findOne.mockResolvedValue(mockUser({ id: 'admin-uuid', role: UserRole.ADMIN }));
       userRepo.count.mockResolvedValue(1);
       await expect(service.deactivate('admin-uuid', 'other-uuid')).rejects.toThrow(ForbiddenException);
+    });
+
+    it('permite desactivar a un admin si hay más de uno activo', async () => {
+      const adminUser = mockUser({ id: 'admin-uuid', role: UserRole.ADMIN });
+      userRepo.findOne.mockResolvedValue(adminUser);
+      userRepo.count.mockResolvedValue(2);
+      userRepo.save.mockResolvedValue({ ...adminUser, isActive: false });
+
+      await service.deactivate('admin-uuid', 'other-admin-uuid');
+      expect(userRepo.save).toHaveBeenCalledWith(expect.objectContaining({ isActive: false }));
     });
 
     it('lanza NotFoundException si el usuario no existe', async () => {

@@ -4,7 +4,6 @@ import {
   ConflictException,
   BadRequestException,
   ForbiddenException,
-  InternalServerErrorException,
 } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -87,7 +86,7 @@ describe('BookingsService', () => {
   };
 
   const cashRegisterService = {
-    getOrCreateActiveSession: jest.fn().mockResolvedValue({ id: 'session-uuid' }),
+    getActiveSessionOrFail: jest.fn().mockResolvedValue({ id: 'session-uuid' }),
     registerTransaction: jest.fn().mockResolvedValue({}),
   };
 
@@ -122,9 +121,11 @@ describe('BookingsService', () => {
     mockQb.setLock.mockReturnThis();
     mockManager.createQueryBuilder.mockReturnValue(mockQb);
     systemConfigService.getPrices.mockResolvedValue({ standard: 3000, professor: 2500 });
-    cashRegisterService.getOrCreateActiveSession.mockResolvedValue({ id: 'session-uuid' });
+    cashRegisterService.getActiveSessionOrFail.mockResolvedValue({ id: 'session-uuid' });
     cashRegisterService.registerTransaction.mockResolvedValue({});
   });
+
+  // ─── findOne ──────────────────────────────────────────────────────────────
 
   describe('findOne', () => {
     it('retorna el turno con relaciones', async () => {
@@ -139,13 +140,23 @@ describe('BookingsService', () => {
     });
   });
 
+  // ─── findByDate ───────────────────────────────────────────────────────────
+
   describe('findByDate', () => {
     it('retorna los turnos del día', async () => {
       mockQb.getMany.mockResolvedValue([mockBooking()]);
       const result = await service.findByDate({ date: '2025-06-01' });
       expect(result).toHaveLength(1);
     });
+
+    it('retorna array vacío si no hay turnos', async () => {
+      mockQb.getMany.mockResolvedValue([]);
+      const result = await service.findByDate({ date: '2025-06-01' });
+      expect(result).toHaveLength(0);
+    });
   });
+
+  // ─── cancel ───────────────────────────────────────────────────────────────
 
   describe('cancel', () => {
     it('lanza ForbiddenException si el usuario no es admin', async () => {
@@ -153,8 +164,7 @@ describe('BookingsService', () => {
     });
 
     it('lanza BadRequestException si el turno ya está cancelado', async () => {
-      mockManager.findOne
-        .mockResolvedValueOnce(mockBooking({ status: BookingStatus.CANCELLED }));
+      mockManager.findOne.mockResolvedValueOnce(mockBooking({ status: BookingStatus.CANCELLED }));
       await expect(service.cancel('booking-uuid', mockAdmin())).rejects.toThrow(BadRequestException);
     });
 
@@ -162,7 +172,23 @@ describe('BookingsService', () => {
       mockManager.findOne.mockResolvedValueOnce(null);
       await expect(service.cancel('missing', mockAdmin())).rejects.toThrow(NotFoundException);
     });
+
+    it('cancela el turno y hace commit', async () => {
+      mockManager.findOne.mockResolvedValueOnce(mockBooking({ status: BookingStatus.BOOKED }));
+      mockManager.update.mockResolvedValue({});
+
+      await service.cancel('booking-uuid', mockAdmin());
+
+      expect(mockManager.update).toHaveBeenCalledWith(
+        Booking,
+        { id: 'booking-uuid' },
+        { status: BookingStatus.CANCELLED },
+      );
+      expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
+    });
   });
+
+  // ─── validateStatusTransition (via update) ────────────────────────────────
 
   describe('validateStatusTransition (via update)', () => {
     it('permite BOOKED → PLAYING', async () => {
@@ -178,48 +204,227 @@ describe('BookingsService', () => {
       ).resolves.toBeDefined();
     });
 
+    it('permite PLAYING → COMPLETED cuando el pago cubre el total', async () => {
+      const booking = mockBooking({
+        status: BookingStatus.PLAYING,
+        priceAmount: 3000,
+        durationMinutes: 60,
+      });
+      const payment = { id: 'pay-uuid', amountCash: 3000, amountTransfer: 0 };
+      mockManager.findOne
+        .mockResolvedValueOnce(booking)
+        .mockResolvedValueOnce({ ...booking, items: [], payment })
+        // commitStock inner findOne
+        .mockResolvedValueOnce({ ...booking, items: [] });
+      mockManager.update.mockResolvedValue({});
+      bookingRepo.findOne.mockResolvedValue({ ...booking, status: BookingStatus.COMPLETED });
+
+      await expect(
+        service.update('booking-uuid', { status: BookingStatus.COMPLETED }, mockAdmin()),
+      ).resolves.toBeDefined();
+    });
+
     it('lanza BadRequestException si el estado ya es terminal (COMPLETED)', async () => {
       const booking = mockBooking({ status: BookingStatus.COMPLETED });
-      mockManager.findOne.mockResolvedValueOnce(booking);
-      mockManager.findOne.mockResolvedValueOnce({ ...booking, items: [], payment: null });
+      mockManager.findOne
+        .mockResolvedValueOnce(booking)
+        .mockResolvedValueOnce({ ...booking, items: [], payment: null });
 
       await expect(
         service.update('booking-uuid', { status: BookingStatus.CANCELLED }, mockAdmin()),
       ).rejects.toThrow(BadRequestException);
     });
 
+    it('lanza BadRequestException si el estado ya es terminal (CANCELLED)', async () => {
+      const booking = mockBooking({ status: BookingStatus.CANCELLED });
+      mockManager.findOne
+        .mockResolvedValueOnce(booking)
+        .mockResolvedValueOnce({ ...booking, items: [], payment: null });
+
+      await expect(
+        service.update('booking-uuid', { status: BookingStatus.PLAYING }, mockAdmin()),
+      ).rejects.toThrow(BadRequestException);
+    });
+
     it('lanza ForbiddenException si empleado intenta cancelar', async () => {
       const booking = mockBooking({ status: BookingStatus.BOOKED });
-      mockManager.findOne.mockResolvedValueOnce(booking);
-      mockManager.findOne.mockResolvedValueOnce({ ...booking, items: [], payment: null });
+      mockManager.findOne
+        .mockResolvedValueOnce(booking)
+        .mockResolvedValueOnce({ ...booking, items: [], payment: null });
 
       await expect(
         service.update('booking-uuid', { status: BookingStatus.CANCELLED }, mockEmployee()),
       ).rejects.toThrow(ForbiddenException);
     });
+
+    it('lanza BadRequestException en transición inválida (BOOKED → COMPLETED)', async () => {
+      const booking = mockBooking({ status: BookingStatus.BOOKED });
+      mockManager.findOne
+        .mockResolvedValueOnce(booking)
+        .mockResolvedValueOnce({ ...booking, items: [], payment: null });
+
+      await expect(
+        service.update('booking-uuid', { status: BookingStatus.COMPLETED }, mockAdmin()),
+      ).rejects.toThrow(BadRequestException);
+    });
   });
+
+  // ─── move ─────────────────────────────────────────────────────────────────
+
+  describe('move', () => {
+    const moveDto = { courtId: 'new-court-uuid', date: '2025-06-02', hour: '14:00' };
+    const mockCourt = { id: 'new-court-uuid', name: 'Cancha 2', isActive: true };
+
+    it('mueve el turno al slot destino y hace commit', async () => {
+      const booking = mockBooking({ status: BookingStatus.BOOKED });
+      mockManager.findOne
+        .mockResolvedValueOnce(booking)   // booking con lock
+        .mockResolvedValueOnce(mockCourt); // court destino
+      mockQb.getOne.mockResolvedValue(null); // sin conflicto en destino
+      mockManager.update.mockResolvedValue({});
+      bookingRepo.findOne.mockResolvedValue({ ...booking, ...moveDto });
+
+      const result = await service.move('booking-uuid', moveDto, mockEmployee());
+
+      expect(mockManager.update).toHaveBeenCalledWith(
+        Booking,
+        { id: 'booking-uuid' },
+        expect.objectContaining({ courtId: 'new-court-uuid', date: '2025-06-02', hour: '14:00' }),
+      );
+      expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
+    });
+
+    it('lanza NotFoundException si el turno no existe', async () => {
+      mockManager.findOne.mockResolvedValueOnce(null);
+
+      await expect(service.move('missing', moveDto, mockAdmin())).rejects.toThrow(NotFoundException);
+    });
+
+    it('lanza NotFoundException si la cancha destino no existe o está inactiva', async () => {
+      mockManager.findOne
+        .mockResolvedValueOnce(mockBooking())
+        .mockResolvedValueOnce(null); // court no encontrado
+
+      await expect(service.move('booking-uuid', moveDto, mockAdmin())).rejects.toThrow(NotFoundException);
+    });
+
+    it('lanza ConflictException si el slot destino ya está ocupado', async () => {
+      mockManager.findOne
+        .mockResolvedValueOnce(mockBooking({ status: BookingStatus.BOOKED }))
+        .mockResolvedValueOnce(mockCourt);
+      mockQb.getOne.mockResolvedValue(mockBooking({ id: 'other-booking', clientName: 'María' }));
+
+      await expect(service.move('booking-uuid', moveDto, mockAdmin())).rejects.toThrow(ConflictException);
+    });
+
+    it('lanza ForbiddenException si empleado intenta mover un turno COMPLETED', async () => {
+      mockManager.findOne.mockResolvedValueOnce(mockBooking({ status: BookingStatus.COMPLETED }));
+
+      await expect(service.move('booking-uuid', moveDto, mockEmployee())).rejects.toThrow(ForbiddenException);
+    });
+
+    it('lanza ForbiddenException si empleado intenta mover un turno CANCELLED', async () => {
+      mockManager.findOne.mockResolvedValueOnce(mockBooking({ status: BookingStatus.CANCELLED }));
+
+      await expect(service.move('booking-uuid', moveDto, mockEmployee())).rejects.toThrow(ForbiddenException);
+    });
+
+    it('admin puede mover un turno en estado COMPLETED', async () => {
+      const booking = mockBooking({ status: BookingStatus.COMPLETED });
+      mockManager.findOne
+        .mockResolvedValueOnce(booking)
+        .mockResolvedValueOnce(mockCourt);
+      mockQb.getOne.mockResolvedValue(null);
+      mockManager.update.mockResolvedValue({});
+      bookingRepo.findOne.mockResolvedValue({ ...booking, ...moveDto });
+
+      await expect(service.move('booking-uuid', moveDto, mockAdmin())).resolves.toBeDefined();
+    });
+  });
+
+  // ─── duplicate ────────────────────────────────────────────────────────────
+
+  describe('duplicate', () => {
+    const dupDto = { courtId: 'new-court-uuid', date: '2025-06-02', hour: '14:00' };
+
+    it('lanza NotFoundException si el turno original no existe', async () => {
+      bookingRepo.findOne.mockResolvedValue(null);
+
+      await expect(service.duplicate('missing', dupDto, mockAdmin())).rejects.toThrow(NotFoundException);
+    });
+
+    it('delega a create con los datos del turno original (clientName, priceType, durationMinutes)', async () => {
+      const source = mockBooking({
+        clientName: 'Carlos López',
+        priceType: PriceType.PROFESSOR,
+        durationMinutes: 90,
+        items: [],
+      });
+      bookingRepo.findOne.mockResolvedValueOnce(source);
+
+      const createSpy = jest
+        .spyOn(service, 'create')
+        .mockResolvedValue(mockBooking({ clientName: 'Carlos López' }));
+
+      await service.duplicate('booking-uuid', dupDto, mockAdmin());
+
+      expect(createSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          clientName: 'Carlos López',
+          priceType: PriceType.PROFESSOR,
+          durationMinutes: 90,
+          courtId: dupDto.courtId,
+          date: dupDto.date,
+          hour: dupDto.hour,
+        }),
+        expect.any(Object),
+      );
+    });
+
+    it('el nuevo turno comienza con pago en $0', async () => {
+      const source = mockBooking({ items: [] });
+      bookingRepo.findOne.mockResolvedValueOnce(source);
+
+      const createSpy = jest.spyOn(service, 'create').mockResolvedValue(mockBooking());
+
+      await service.duplicate('booking-uuid', dupDto, mockAdmin());
+
+      expect(createSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ amountCash: 0, amountTransfer: 0 }),
+        expect.any(Object),
+      );
+    });
+  });
+
+  // ─── handleDbError ────────────────────────────────────────────────────────
 
   describe('handleDbError', () => {
     it('convierte error 23505 en ConflictException al crear', async () => {
-      mockManager.findOne
-        .mockResolvedValueOnce({ id: 'court-uuid', isActive: true, name: 'Cancha 1' })
-        .mockResolvedValueOnce(null);
+      mockManager.findOne.mockResolvedValue({ id: 'court-uuid', isActive: true, name: 'Cancha 1' });
       mockQb.getOne.mockResolvedValue(null);
       mockManager.create.mockReturnValue(mockBooking());
-      mockManager.save
-        .mockRejectedValueOnce({ code: '23505' });
+      mockManager.save.mockRejectedValueOnce({ code: '23505' });
 
       await expect(
         service.create(
-          {
-            courtId: 'court-uuid',
-            date: '2025-06-01',
-            hour: '10:00',
-            clientName: 'Test',
-          },
+          { courtId: 'court-uuid', date: '2025-06-01', hour: '10:00', clientName: 'Test' },
           mockAdmin(),
         ),
       ).rejects.toThrow(ConflictException);
+    });
+
+    it('convierte error 23514 en BadRequestException (stock negativo)', async () => {
+      mockManager.findOne.mockResolvedValue({ id: 'court-uuid', isActive: true, name: 'Cancha 1' });
+      mockQb.getOne.mockResolvedValue(null);
+      mockManager.create.mockReturnValue(mockBooking());
+      mockManager.save.mockRejectedValueOnce({ code: '23514' });
+
+      await expect(
+        service.create(
+          { courtId: 'court-uuid', date: '2025-06-01', hour: '10:00', clientName: 'Test' },
+          mockAdmin(),
+        ),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 });
