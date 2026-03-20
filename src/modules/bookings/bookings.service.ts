@@ -14,6 +14,7 @@ import { Booking, BookingStatus, PriceType } from './entities/booking.entity';
 import { BookingItem } from './entities/booking-item.entity';
 import { BookingPayment } from './entities/booking-payment.entity';
 import { Product } from '../products/entities/product.entity';
+import { ProductCategory } from '../products/entities/product-category.entity';
 import { Court } from '../courts/entities/court.entity';
 import { User, UserRole } from '../users/entities/user.entity';
 import { SystemConfigService } from '../system-config/system-config.service';
@@ -172,7 +173,7 @@ export class BookingsService {
 
       const totalPaid = (dto.amountCash ?? 0) + (dto.amountTransfer ?? 0);
       if (totalPaid > 0) {
-        const session = await this.cashRegisterService.getOrCreateActiveSession(
+        const session = await this.cashRegisterService.getActiveSessionOrFail(
           queryRunner,
           user.id,
         );
@@ -245,15 +246,13 @@ export class BookingsService {
       if (dto.items !== undefined) {
         const existingItems = bookingWithRelations?.items ?? [];
 
-        await this.restoreStock(existingItems, queryRunner);
-
         if (existingItems.length > 0) {
           const ids = existingItems.map((i) => i.id);
           const placeholders = ids.map((_, idx) => `$${idx + 1}`).join(', ');
           await queryRunner.query(`DELETE FROM booking_items WHERE id IN (${placeholders})`, ids);
         }
 
-        const newItems = await this.processItems(dto.items, queryRunner);
+        const newItems = await this.processItems(dto.items, queryRunner, existingItems);
         itemsTotal = newItems.reduce((sum, i) => sum + Number(i.unitPrice) * i.quantity, 0);
 
         for (const item of newItems) {
@@ -271,6 +270,10 @@ export class BookingsService {
       }
 
       if (dto.status === BookingStatus.COMPLETED) {
+        // Hard commit: descontar stock de productos físicos al finalizar el turno.
+        // Se ejecuta ANTES de validar el pago para fallar temprano si hay stock insuficiente.
+        await this.commitStock(booking.id, queryRunner);
+
         const existingPayment = bookingWithRelations?.payment;
         const effectiveCash =
           dto.amountCash !== undefined ? dto.amountCash : Number(existingPayment?.amountCash ?? 0);
@@ -294,6 +297,11 @@ export class BookingsService {
       const hasPaymentUpdate = dto.amountCash !== undefined || dto.amountTransfer !== undefined;
 
       if (hasPaymentUpdate) {
+        const prevCash = Number(bookingWithRelations?.payment?.amountCash ?? 0);
+        const prevTransfer = Number(bookingWithRelations?.payment?.amountTransfer ?? 0);
+        const newCash = dto.amountCash ?? prevCash;
+        const newTransfer = dto.amountTransfer ?? prevTransfer;
+
         if (bookingWithRelations?.payment) {
           const paymentFields: Partial<BookingPayment> = {};
           if (dto.amountCash !== undefined) paymentFields.amountCash = dto.amountCash;
@@ -309,6 +317,29 @@ export class BookingsService {
              VALUES ($1, $2, $3)`,
             [booking.id, dto.amountCash ?? 0, dto.amountTransfer ?? 0],
           );
+        }
+
+        // Registrar la diferencia de pago como movimiento en caja
+        const deltaCash = newCash - prevCash;
+        const deltaTransfer = newTransfer - prevTransfer;
+
+        if (deltaCash > 0 || deltaTransfer > 0) {
+          const court = await queryRunner.manager.findOne(Court, {
+            where: { id: booking.courtId },
+          });
+          const session = await this.cashRegisterService.getActiveSessionOrFail(
+            queryRunner,
+            user.id,
+          );
+          await this.cashRegisterService.registerTransaction(queryRunner, {
+            cashSessionId: session.id,
+            type: TransactionType.BOOKING,
+            referenceId: booking.id,
+            concept: `Pago turno ${court?.name ?? ''} - ${booking.hour}hs (${booking.clientName})`,
+            amountCash: Math.max(0, deltaCash),
+            amountTransfer: Math.max(0, deltaTransfer),
+            createdByUserId: user.id,
+          });
         }
       }
 
@@ -468,13 +499,6 @@ export class BookingsService {
         throw new BadRequestException('El turno ya está cancelado.');
       }
 
-      const bookingWithItems = await queryRunner.manager.findOne(Booking, {
-        where: { id },
-        relations: ['items'],
-      });
-
-      await this.restoreStock(bookingWithItems?.items ?? [], queryRunner);
-
       await queryRunner.manager.update(
         Booking,
         { id: booking.id },
@@ -482,9 +506,7 @@ export class BookingsService {
       );
 
       await queryRunner.commitTransaction();
-      this.logger.log(
-        `Turno ${id} cancelado por admin ${user.username}. Stock restaurado para ${bookingWithItems?.items?.length ?? 0} productos.`,
-      );
+      this.logger.log(`Turno ${id} cancelado por admin ${user.username}.`);
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.handleDbError(error);
@@ -494,19 +516,53 @@ export class BookingsService {
   }
 
   /**
-   * Bloquea cada producto con SELECT FOR UPDATE, verifica stock y descuenta la cantidad.
+   * Devuelve `true` si la categoría corresponde a "Alquileres" (servicio sin stock finito).
+   * Recibe el nombre por separado para evitar joins en consultas con lock (error 0A000).
+   */
+  private isCategoryRental(categoryName: string | undefined): boolean {
+    return (categoryName ?? '').toLowerCase().includes('alquiler');
+  }
+
+  /**
+   * SOFT COMMIT — Verifica existencia y stock disponible sin tocar la tabla `products`.
+   * El stock real se descuenta recién en `commitStock()` al finalizar el turno.
    * Retorna los items enriquecidos con el precio snapshot del momento.
+   *
+   * @param items         - Nuevos items a persistir.
+   * @param queryRunner   - QueryRunner de la transacción activa.
+   * @param existingItems - Items actuales de la reserva ANTES del reemplazo.
+   *                        Se usa para calcular el stock efectivo disponible en un
+   *                        escenario de reemplazo: si el código anterior ya descontó
+   *                        esa cantidad, la "devolvemos" al validar la nueva.
+   *
+   * Stock efectivo = product.stock + cantidadYaEnReserva
+   * Esto hace la validación correcta tanto para reservas nuevas (existingQty=0)
+   * como para reemplazos de items existentes (existingQty > 0).
    */
   private async processItems(
     items: { productId: string; quantity: number }[],
     queryRunner: any,
+    existingItems: { productId: string; quantity: number }[] = [],
   ): Promise<{ productId: string; quantity: number; unitPrice: number }[]> {
     const result: { productId: string; quantity: number; unitPrice: number }[] = [];
 
+    // Agregar cantidades del mismo producto en un único entry para evitar
+    // que dos líneas del mismo productId pasen validación individual pero superen el stock combinado.
+    const aggregated = new Map<string, number>();
     for (const item of items) {
+      aggregated.set(item.productId, (aggregated.get(item.productId) ?? 0) + item.quantity);
+    }
+    const deduped = Array.from(aggregated, ([productId, quantity]) => ({ productId, quantity }));
+
+    // Mapa de cantidades previamente en la reserva (para ajustar la validación de stock)
+    const existingQtyMap = new Map<string, number>();
+    for (const ei of existingItems) {
+      existingQtyMap.set(ei.productId, (existingQtyMap.get(ei.productId) ?? 0) + ei.quantity);
+    }
+
+    for (const item of deduped) {
       const product = await queryRunner.manager.findOne(Product, {
         where: { id: item.productId, isActive: true },
-        lock: { mode: 'pessimistic_write' },
         loadEagerRelations: false,
       });
 
@@ -514,14 +570,23 @@ export class BookingsService {
         throw new NotFoundException(`Producto con ID ${item.productId} no encontrado o inactivo.`);
       }
 
-      if (product.stock < item.quantity) {
-        throw new BadRequestException(
-          `Stock insuficiente para "${product.name}". ` +
-            `Disponible: ${product.stock}, solicitado: ${item.quantity}.`,
-        );
-      }
+      const category = product.categoryId
+        ? await queryRunner.manager.findOne(ProductCategory, {
+            where: { id: product.categoryId },
+          })
+        : null;
 
-      await queryRunner.manager.decrement(Product, { id: product.id }, 'stock', item.quantity);
+      if (!this.isCategoryRental(category?.name)) {
+        // Comparar la cantidad deseada directamente contra el stock real en DB.
+        // El stock no se decrementa hasta el hard commit (finalizar turno),
+        // así que product.stock refleja la disponibilidad real.
+        if (product.stock < item.quantity) {
+          throw new BadRequestException(
+            `Stock insuficiente para "${product.name}". ` +
+              `Disponible: ${product.stock}, solicitado: ${item.quantity}.`,
+          );
+        }
+      }
 
       result.push({
         productId: item.productId,
@@ -533,15 +598,47 @@ export class BookingsService {
     return result;
   }
 
-  /** Incrementa el stock de cada item al cancelar un turno o reemplazar sus productos. */
-  private async restoreStock(items: BookingItem[], queryRunner: any): Promise<void> {
-    for (const item of items) {
-      await queryRunner.manager.increment(Product, { id: item.productId }, 'stock', item.quantity);
+  /**
+   * HARD COMMIT — Descuenta el stock real al finalizar el turno (status → COMPLETED).
+   * Aplica bloqueo pesimista DIRECTAMENTE sobre `Product` sin joins (evita error 0A000).
+   * Los productos de categoría "Alquileres" se omiten.
+   * Lanza BadRequestException si algún producto ya no tiene stock suficiente.
+   */
+  private async commitStock(bookingId: string, queryRunner: any): Promise<void> {
+    const bookingWithItems = await queryRunner.manager.findOne(Booking, {
+      where: { id: bookingId },
+      relations: ['items'],
+    });
+
+    for (const item of bookingWithItems?.items ?? []) {
+      // Lock sin joins para cumplir con las restricciones de PostgreSQL
+      const product = await queryRunner.manager.findOne(Product, {
+        where: { id: item.productId },
+        lock: { mode: 'pessimistic_write' },
+        loadEagerRelations: false,
+      });
+
+      if (!product) continue;
+
+      const category = product.categoryId
+        ? await queryRunner.manager.findOne(ProductCategory, {
+            where: { id: product.categoryId },
+          })
+        : null;
+
+      if (this.isCategoryRental(category?.name)) continue;
+
+      if (product.stock < item.quantity) {
+        throw new BadRequestException(
+          `Stock insuficiente para finalizar el turno: "${product.name}". ` +
+            `Disponible: ${product.stock}, requerido: ${item.quantity}.`,
+        );
+      }
+
+      await queryRunner.manager.decrement(Product, { id: product.id }, 'stock', item.quantity);
     }
 
-    if (items.length > 0) {
-      this.logger.debug(`Stock restaurado para ${items.length} productos del turno.`);
-    }
+    this.logger.log(`Stock descontado (hard commit) para turno ${bookingId}.`);
   }
 
   /**
