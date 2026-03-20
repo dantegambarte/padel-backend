@@ -54,20 +54,16 @@ export class AuthService {
   async login(loginDto: LoginDto) {
     const user = await this.validateUser(loginDto.username, loginDto.password);
 
-    // Incrementar sessionVersion para invalidar cualquier sesión anterior
-    await this.userRepo.increment({ id: user.id }, 'sessionVersion', 1);
-    const newVersion = (user.sessionVersion ?? 1) + 1;
-
     const payload: JwtPayload = {
       sub: user.id,
       username: user.username,
       role: user.role,
-      sv: newVersion,
+      sv: user.sessionVersion,
     };
 
     const [accessToken, refreshToken] = await this.signTokenPair(payload);
 
-    this.logger.log(`Login exitoso: ${user.username} (${user.role}) — sessionVersion=${newVersion}`);
+    this.logger.log(`Login exitoso: ${user.username} (${user.role}) — sessionVersion=${user.sessionVersion}`);
 
     return {
       accessToken,
