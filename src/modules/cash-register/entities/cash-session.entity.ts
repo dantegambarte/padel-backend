@@ -6,7 +6,6 @@ import {
   OneToMany,
   JoinColumn,
   CreateDateColumn,
-  Unique,
 } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
 import { Transaction } from './transaction.entity';
@@ -17,22 +16,20 @@ export enum CashSessionStatus {
 }
 
 /**
- * Sesión de caja diaria.
- * Solo puede existir UNA sesión por fecha (UNIQUE en 'date').
+ * Sesión de caja / jornada de trabajo.
+ * Pueden existir múltiples sesiones por fecha (turno mañana, turno tarde, etc.).
+ * La única restricción es que solo puede haber UNA sesión con status OPEN a la vez.
  *
- * La sesión se abre automáticamente al primer movimiento del día
- * (primera reserva o primera venta). Se cierra manualmente con
- * el "Cierre Z" que bloquea el día.
+ * La sesión se abre manualmente antes de registrar cobros.
+ * Se cierra con el "Cierre Z". Tras el cierre se puede abrir una nueva jornada.
  *
- * cash_expected = Σ amount_cash de todas las transactions del día.
- * transfer_total = Σ amount_transfer de todas las transactions del día.
- * Estos valores se recalculan en tiempo real al consultar la sesión.
+ * cash_expected = Σ amount_cash de todas las transactions de la sesión.
+ * transfer_total = Σ amount_transfer de todas las transactions de la sesión.
  *
  * cash_counted = efectivo físico contado al cierre (ingresado por el empleado).
  * difference = cash_counted - cash_expected (positivo = sobrante, negativo = faltante).
  */
 @Entity('cash_sessions')
-@Unique('UQ_cash_session_date', ['date'])
 export class CashSession {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -93,6 +90,19 @@ export class CashSession {
     nullable: true,
   })
   difference: number;
+
+  /**
+   * Fondo de caja / cambio inicial declarado por el empleado al abrir la sesión.
+   * No entra en el arqueo de efectivo (es solo referencia operativa).
+   */
+  @Column({
+    name: 'initial_balance',
+    type: 'numeric',
+    precision: 10,
+    scale: 2,
+    default: 0,
+  })
+  initialBalance: number;
 
   @Column({ type: 'text', nullable: true })
   notes: string;

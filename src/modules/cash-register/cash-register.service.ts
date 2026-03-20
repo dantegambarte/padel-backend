@@ -3,8 +3,7 @@ import {
   Logger,
   NotFoundException,
   ConflictException,
-  ServiceUnavailableException,
-  InternalServerErrorException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, QueryRunner, Repository } from 'typeorm';
@@ -13,6 +12,7 @@ import { CashSession, CashSessionStatus } from './entities/cash-session.entity';
 import { Transaction, TransactionType } from './entities/transaction.entity';
 import { User } from '../users/entities/user.entity';
 import { CloseSessionDto } from './dto/close-session.dto';
+import { OpenSessionDto } from './dto/open-session.dto';
 
 export interface RegisterTransactionInput {
   cashSessionId: string;
@@ -39,22 +39,73 @@ export class CashRegisterService {
     private readonly transactionRepo: Repository<Transaction>,
   ) {}
 
+  // ─── Apertura Manual ────────────────────────────────────────────────────────
+
   /**
-   * Obtiene la sesión de caja ABIERTA (independientemente del día calendario)
-   * o la crea si no existe ninguna. Implementa el modelo de "Jornada Comercial":
-   * si hay una caja abierta del lunes y la venta ocurre a las 00:30 del martes,
-   * la venta entra en la caja del lunes.
+   * Abre una nueva sesión de caja manualmente.
+   * Requiere que no exista ninguna sesión OPEN en este momento.
+   * Registra el fondo de caja / cambio inicial declarado por el empleado.
+   */
+  async openSession(dto: OpenSessionDto, user: User): Promise<CashSession> {
+    const existing = await this.sessionRepo.findOne({
+      where: { status: CashSessionStatus.OPEN },
+      order: { openedAt: 'DESC' } as any,
+    });
+
+    if (existing) {
+      throw new ConflictException(
+        'Ya existe una sesión de caja abierta. Cerrá la jornada actual antes de abrir una nueva.',
+      );
+    }
+
+    // Generar una nueva fecha comercial para la próxima jornada.
+    // No se bloquea si ya hubo una caja cerrada hoy: el empleado puede abrir
+    // una nueva jornada en el mismo día comercial (turno mañana / turno tarde).
+    const commercialDate = this.getCommercialDate();
+
+    const session = this.sessionRepo.create({
+      date: commercialDate,
+      status: CashSessionStatus.OPEN,
+      openedByUserId: user.id,
+      initialBalance: dto.initialBalance,
+      notes: dto.notes || undefined,
+    });
+
+    let saved: CashSession;
+    try {
+      saved = await this.sessionRepo.save(session);
+    } catch (err: any) {
+      // Código 23505 = unique_violation en Postgres.
+      // Ocurre si la migración DropUniqueDateCashSessions aún no fue ejecutada
+      // y ya existe una sesión (abierta o cerrada) con la misma fecha comercial.
+      if (err?.code === '23505') {
+        throw new ConflictException(
+          'Ya existe una sesión registrada para esta jornada. Ejecuta la migración "DropUniqueDateCashSessions" para permitir múltiples jornadas por día.',
+        );
+      }
+      throw err;
+    }
+    this.logger.log(
+      `Caja abierta por ${user.username} | Jornada ${commercialDate} | Fondo inicial: $${dto.initialBalance}`,
+    );
+    return saved;
+  }
+
+  // ─── Obtener Sesión Activa para Transacciones ────────────────────────────
+
+  /**
+   * Obtiene la sesión de caja ABIERTA actualmente.
+   * Si no existe ninguna sesión abierta lanza un error —
+   * el empleado debe abrir la caja antes de registrar cualquier cobro.
    *
    * Debe llamarse dentro de un QueryRunner activo.
-   * Lanza ServiceUnavailableException si la jornada comercial ya fue cerrada.
    */
-  async getOrCreateActiveSession(queryRunner: QueryRunner, userId: string): Promise<CashSession> {
-    // Lock global para evitar race conditions al crear una nueva sesión
+  async getActiveSessionOrFail(queryRunner: QueryRunner, userId: string): Promise<CashSession> {
+    // Lock global para evitar race conditions
     await queryRunner.query(`SELECT pg_advisory_xact_lock(abs(hashtext($1)))`, [
       `cash_session:open`,
     ]);
 
-    // Buscar LA ÚLTIMA CAJA ABIERTA (modelo Jornada Comercial)
     const openSession = await queryRunner.manager.findOne(CashSession, {
       where: { status: CashSessionStatus.OPEN },
       order: { openedAt: 'DESC' } as any,
@@ -65,32 +116,14 @@ export class CashRegisterService {
       return openSession;
     }
 
-    // No hay caja abierta: crear una nueva para la fecha comercial vigente
-    const commercialDate = this.getCommercialDate();
-
-    // Verificar si ya existe una sesión cerrada para esta fecha comercial
-    const closedSession = await queryRunner.manager.findOne(CashSession, {
-      where: { date: commercialDate },
-      lock: { mode: 'pessimistic_write' },
+    // No hay caja abierta → el empleado debe abrirla manualmente
+    throw new BadRequestException({
+      errorCode: 'CAJA_CERRADA',
+      message: 'Debes abrir la caja antes de registrar cualquier cobro o venta.',
     });
-
-    if (closedSession?.status === CashSessionStatus.CLOSED) {
-      throw new ServiceUnavailableException(
-        `La caja de la jornada del ${commercialDate} ya fue cerrada. ` +
-          'No se pueden registrar más operaciones.',
-      );
-    }
-
-    const session = queryRunner.manager.create(CashSession, {
-      date: commercialDate,
-      status: CashSessionStatus.OPEN,
-      openedByUserId: userId,
-    });
-
-    const saved = await queryRunner.manager.save(CashSession, session);
-    this.logger.log(`Sesión de caja abierta automáticamente para jornada del ${commercialDate}`);
-    return saved;
   }
+
+  // ─── Registrar Movimiento ────────────────────────────────────────────────
 
   /**
    * Registra un movimiento financiero en la sesión de caja.
@@ -113,12 +146,20 @@ export class CashRegisterService {
     return queryRunner.manager.save(Transaction, tx);
   }
 
-  /** Retorna el estado completo de la caja: totales, movimientos y si está abierta. */
+  // ─── Estado Actual de la Caja ────────────────────────────────────────────
+
+  /**
+   * Retorna el estado completo de la sesión de caja:
+   *  - Sin ?date → busca ÚNICAMENTE la sesión OPEN activa.
+   *               Si no hay ninguna abierta → session: null (mostrar pantalla de Apertura).
+   *  - Con ?date → consulta histórica exacta para esa fecha (puede ser CLOSED).
+   */
   async getCurrentSession(date?: string): Promise<{
     session: CashSession | null;
     cashExpected: number;
     transferTotal: number;
     dayTotal: number;
+    initialBalance: number;
     transactions: {
       id: string;
       type: string;
@@ -128,6 +169,8 @@ export class CashRegisterService {
       amountTransfer: string;
       createdAt: string;
       customerName: string | null;
+      createdByFullName: string | null;
+      createdByUsername: string | null;
     }[];
     isOpen: boolean;
   }> {
@@ -140,21 +183,13 @@ export class CashRegisterService {
         relations: ['openedByUser', 'closedByUser'],
       });
     } else {
-      // Consulta actual: buscar la última CAJA ABIERTA (Jornada Comercial)
+      // Buscar ÚNICAMENTE la sesión ABIERTA activa.
+      // Si está cerrada → session: null → frontend muestra pantalla de Apertura.
       session = await this.sessionRepo.findOne({
         where: { status: CashSessionStatus.OPEN },
         order: { openedAt: 'DESC' } as any,
         relations: ['openedByUser', 'closedByUser'],
       });
-
-      // Si no hay caja abierta, mostrar la última sesión cerrada
-      if (!session) {
-        session = await this.sessionRepo.findOne({
-          where: { status: CashSessionStatus.CLOSED },
-          order: { openedAt: 'DESC' } as any,
-          relations: ['openedByUser', 'closedByUser'],
-        });
-      }
     }
 
     if (!session) {
@@ -163,8 +198,9 @@ export class CashRegisterService {
         cashExpected: 0,
         transferTotal: 0,
         dayTotal: 0,
+        initialBalance: 0,
         transactions: [],
-        isOpen: true,
+        isOpen: false,
       };
     }
 
@@ -180,7 +216,6 @@ export class CashRegisterService {
     const cashExpected = parseFloat(totals[0]?.cash_expected ?? '0');
     const transferTotal = parseFloat(totals[0]?.transfer_total ?? '0');
 
-    // LEFT JOIN con sales (customerName) y users (empleado que registró el movimiento)
     const transactions = await this.dataSource.query(
       `SELECT
          t.id,
@@ -206,14 +241,17 @@ export class CashRegisterService {
       cashExpected,
       transferTotal,
       dayTotal: cashExpected + transferTotal,
+      initialBalance: Number(session.initialBalance) || 0,
       transactions,
       isOpen: session.status === CashSessionStatus.OPEN,
     };
   }
 
+  // ─── Cierre Z ────────────────────────────────────────────────────────────
+
   /**
    * Ejecuta el cierre Z: calcula la diferencia entre lo contado y lo esperado,
-   * cierra la sesión e impide nuevas operaciones para el día.
+   * cierra la sesión e impide nuevas operaciones para la jornada.
    */
   async closeSession(
     dto: CloseSessionDto,
@@ -226,7 +264,6 @@ export class CashRegisterService {
     difference: number;
     balances: 'exact' | 'surplus' | 'shortage';
   }> {
-    // Buscar la última caja ABIERTA (modelo Jornada Comercial)
     const session = await this.sessionRepo.findOne({
       where: { status: CashSessionStatus.OPEN },
       order: { openedAt: 'DESC' } as any,
@@ -234,7 +271,7 @@ export class CashRegisterService {
 
     if (!session) {
       throw new NotFoundException(
-        'No existe una sesión de caja abierta. No hubo operaciones registradas.',
+        'No existe una sesión de caja abierta. No se puede realizar el cierre.',
       );
     }
 
@@ -255,7 +292,7 @@ export class CashRegisterService {
     session.closedByUserId = user.id;
     session.cashCounted = dto.cashCounted;
     session.difference = difference;
-    session.notes = dto.notes ?? '';
+    session.notes = dto.notes ?? session.notes ?? '';
     session.closedAt = new Date();
 
     await this.sessionRepo.save(session);
@@ -268,28 +305,122 @@ export class CashRegisterService {
 
     const balances = difference === 0 ? 'exact' : difference > 0 ? 'surplus' : 'shortage';
 
+    return { session, cashExpected, transferTotal, dayTotal: cashExpected + transferTotal, difference, balances };
+  }
+
+  // ─── KPIs de la Sesión Activa (para el Dashboard) ───────────────────────
+
+  /**
+   * KPIs de la jornada activa para el Dashboard Admin.
+   * Fuente de verdad: la sesión OPEN actualmente (no el día calendario).
+   * Si no hay sesión abierta → devuelve ceros.
+   */
+  async getActiveSessionKpis(): Promise<{
+    sessionId: string | null;
+    sessionDate: string | null;
+    totalRevenue: number;
+    cashTotal: number;
+    transferTotal: number;
+    completedBookings: number;
+    totalSlots: number;
+    occupationRate: number;
+    productsSold: number;
+  }> {
+    // Buscar sesión abierta
+    const openSession = await this.sessionRepo.findOne({
+      where: { status: CashSessionStatus.OPEN },
+      order: { openedAt: 'DESC' } as any,
+    });
+
+    if (!openSession) {
+      return {
+        sessionId: null,
+        sessionDate: null,
+        totalRevenue: 0,
+        cashTotal: 0,
+        transferTotal: 0,
+        completedBookings: 0,
+        totalSlots: 0,
+        occupationRate: 0,
+        productsSold: 0,
+      };
+    }
+
+    const sessionDate = openSession.date; // YYYY-MM-DD de la jornada comercial
+
+    const [revenueRows, bookingRows, courtRows, productsRows] = await Promise.all([
+      // Ingresos desde las transacciones de esta sesión
+      this.dataSource.query<{ total: string; cash: string; transfer: string }[]>(
+        `SELECT
+           COALESCE(SUM(amount_cash + amount_transfer), 0) AS total,
+           COALESCE(SUM(amount_cash),                  0) AS cash,
+           COALESCE(SUM(amount_transfer),              0) AS transfer
+         FROM transactions
+         WHERE cash_session_id = $1`,
+        [openSession.id],
+      ),
+      // Turnos completados de la fecha comercial de la sesión
+      this.dataSource.query<{ completed: string }[]>(
+        `SELECT COUNT(*) AS completed
+         FROM bookings
+         WHERE date = $1 AND status = 'completed'`,
+        [sessionDate],
+      ),
+      // Canchas activas
+      this.dataSource.query<{ court_count: string }[]>(
+        `SELECT COUNT(*) AS court_count FROM courts WHERE is_active = true`,
+      ),
+      // Productos vendidos: ventas POS + consumos de turnos completados, ambos de la sesión
+      this.dataSource.query<{ total_qty: string }[]>(
+        `SELECT COALESCE(SUM(qty), 0) AS total_qty
+         FROM (
+           SELECT si.quantity AS qty
+           FROM sale_items si
+           JOIN sales     sa ON sa.id   = si.sale_id
+           JOIN transactions t  ON t.reference_id = sa.id AND t.type = 'sale'
+           WHERE t.cash_session_id = $1
+
+           UNION ALL
+
+           SELECT bi.quantity AS qty
+           FROM booking_items bi
+           JOIN bookings b ON b.id = bi.booking_id
+           WHERE b.date = $2 AND b.status = 'completed'
+         ) sub`,
+        [openSession.id, sessionDate],
+      ),
+    ]);
+
+    const completedBookings = parseInt(bookingRows[0]?.completed ?? '0', 10);
+    const courtCount = parseInt(courtRows[0]?.court_count ?? '1', 10);
+    const totalSlots = courtCount * 14; // 9hs a 22hs inclusive
+    const occupationRate =
+      totalSlots > 0 ? Math.round((completedBookings / totalSlots) * 100) : 0;
+
     return {
-      session,
-      cashExpected,
-      transferTotal,
-      dayTotal: cashExpected + transferTotal,
-      difference,
-      balances,
+      sessionId: openSession.id,
+      sessionDate,
+      totalRevenue: parseFloat(revenueRows[0]?.total ?? '0'),
+      cashTotal: parseFloat(revenueRows[0]?.cash ?? '0'),
+      transferTotal: parseFloat(revenueRows[0]?.transfer ?? '0'),
+      completedBookings,
+      totalSlots,
+      occupationRate,
+      productsSold: parseInt(productsRows[0]?.total_qty ?? '0', 10),
     };
   }
 
+  // ─── Helpers ─────────────────────────────────────────────────────────────
+
   /**
    * Retorna la fecha comercial vigente en zona horaria Argentina (YYYY-MM-DD).
-   * Implementa el "Cutoff Time": cualquier hora entre las 00:00 y las 03:59 AM
-   * pertenece comercialmente al día anterior.
+   * Implementa el "Cutoff Time": horas entre 00:00 y 03:59 AM pertenecen al día anterior.
    */
-  private getCommercialDate(): string {
+  getCommercialDate(): string {
     const CUTOFF_HOUR = 4;
     const TZ = 'America/Argentina/Buenos_Aires';
 
     const now = new Date();
-
-    // Extraer hora actual en Argentina usando Intl (más confiable que toLocaleString)
     const hourParts = new Intl.DateTimeFormat('en-US', {
       timeZone: TZ,
       hour: 'numeric',
@@ -298,7 +429,6 @@ export class CashRegisterService {
     const currentHour = parseInt(hourParts.find((p) => p.type === 'hour')?.value ?? '12', 10);
 
     if (currentHour < CUTOFF_HOUR) {
-      // Madrugada: pertenece al día comercial anterior
       const yesterday = new Date(now);
       yesterday.setDate(yesterday.getDate() - 1);
       return yesterday.toLocaleDateString('en-CA', { timeZone: TZ });
