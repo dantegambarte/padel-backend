@@ -11,6 +11,7 @@ import {
   ParseUUIDPipe,
   HttpCode,
   HttpStatus,
+  BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiParam, ApiResponse } from '@nestjs/swagger';
 import { ProductsService } from './products.service';
@@ -76,6 +77,22 @@ export class ProductsController {
   @ApiOperation({ summary: 'Listar categorías de productos' })
   findCategories() {
     return this.productsService.findAllCategories();
+  }
+
+  /**
+   * POST /api/v1/products/categories — Solo Admin
+   * Crea una categoría si no existe (idempotente por nombre).
+   */
+  @Post('categories')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Crear categoría de producto (solo admin)' })
+  createCategory(@Body() body: { name: string }) {
+    if (!body?.name?.trim()) {
+      throw new BadRequestException('El nombre de la categoría es requerido.');
+    }
+    return this.productsService.createCategory(body.name);
   }
 
   /**

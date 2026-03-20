@@ -93,6 +93,23 @@ export class ProductsService {
     return this.categoryRepo.find({ order: { name: 'ASC' } });
   }
 
+  /**
+   * Crea una categoría si no existe (idempotente por nombre, case-insensitive).
+   * Usado cuando el usuario tipea una nueva categoría en el formulario de producto.
+   */
+  async createCategory(name: string): Promise<ProductCategory> {
+    const trimmed = name.trim();
+    const existing = await this.categoryRepo.findOne({
+      where: { name: ILike(trimmed) },
+    });
+    if (existing) return existing;
+
+    const category = this.categoryRepo.create({ name: trimmed });
+    const saved = await this.categoryRepo.save(category);
+    this.logger.log(`Categoría creada: "${saved.name}"`);
+    return saved;
+  }
+
   /** Crea un producto validando que la categoría exista si se especifica. */
   async create(dto: CreateProductDto): Promise<Product> {
     if (dto.categoryId) {
