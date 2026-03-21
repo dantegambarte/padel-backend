@@ -8,6 +8,7 @@ import {
   IsOptional,
   IsNumber,
   IsInt,
+  IsIn,
   Min,
   ValidateNested,
   Matches,
@@ -89,10 +90,11 @@ export class CreateBookingDto {
 
   @ApiPropertyOptional({
     example: 60,
+    enum: [30, 60, 90, 120],
     description: 'Duración del turno en minutos (30, 60, 90, 120)',
   })
   @IsOptional()
   @IsInt()
-  @Min(30)
+  @IsIn([30, 60, 90, 120], { message: 'La duración debe ser 30, 60, 90 o 120 minutos.' })
   durationMinutes?: number;
 }

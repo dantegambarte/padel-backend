@@ -17,7 +17,6 @@ import { Product } from '../products/entities/product.entity';
 import { ProductCategory } from '../products/entities/product-category.entity';
 import { Court } from '../courts/entities/court.entity';
 import { User, UserRole } from '../users/entities/user.entity';
-import { SystemConfigService } from '../system-config/system-config.service';
 import { CashRegisterService } from '../cash-register/cash-register.service';
 import { TransactionType } from '../cash-register/entities/transaction.entity';
 
@@ -37,7 +36,6 @@ export class BookingsService {
     @InjectRepository(Booking)
     private readonly bookingRepo: Repository<Booking>,
 
-    private readonly systemConfigService: SystemConfigService,
     private readonly cashRegisterService: CashRegisterService,
   ) {}
 
@@ -129,9 +127,16 @@ export class BookingsService {
         );
       }
 
-      const prices = await this.systemConfigService.getPrices();
       const priceType = dto.priceType ?? PriceType.STANDARD;
-      const priceAmount = priceType === PriceType.PROFESSOR ? prices.professor : prices.standard;
+      const duration = dto.durationMinutes ?? 60;
+      let priceAmount: number;
+      switch (duration) {
+        case 30:  priceAmount = Number(court.price30);  break;
+        case 60:  priceAmount = Number(court.price60);  break;
+        case 90:  priceAmount = Number(court.price90);  break;
+        case 120: priceAmount = Number(court.price120); break;
+        default:  priceAmount = Number(court.price60);
+      }
 
       const bookingItems = await this.processItems(dto.items ?? [], queryRunner);
 

@@ -10,13 +10,11 @@ import { BookingPayment } from './entities/booking-payment.entity';
 import { Product } from '../products/entities/product.entity';
 import { Court } from '../courts/entities/court.entity';
 
-import { SystemConfigModule } from '../system-config/system-config.module';
 import { CashRegisterModule } from '../cash-register/cash-register.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Booking, BookingItem, BookingPayment, Product, Court]),
-    SystemConfigModule, // Para leer precios en tiempo real desde la config
     CashRegisterModule, // Para registrar movimientos en caja al crear turnos
   ],
   controllers: [BookingsController],
