@@ -326,18 +326,22 @@ describe('CashRegisterService', () => {
       expect(result.totalRevenue).toBe(0);
       expect(result.completedBookings).toBe(0);
       expect(result.occupationRate).toBe(0);
-      expect(result.productsSold).toBe(0);
+      expect(result.cantinaItemsSold).toBe(0);
     });
 
     it('retorna KPIs calculados desde la sesión activa', async () => {
       sessionRepo.findOne.mockResolvedValue(mockSession({ date: '2025-06-01' }));
 
-      // 4 queries en paralelo: revenue, bookings, courts, products
+      // 8 queries en paralelo: revenue, completed, live, canceled, courts, cantinaItems, cantinaRevenue, topProduct
       dataSource.query
         .mockResolvedValueOnce([{ total: '50000', cash: '30000', transfer: '20000' }])
         .mockResolvedValueOnce([{ completed: '5' }])
+        .mockResolvedValueOnce([{ live: '1' }])
+        .mockResolvedValueOnce([{ canceled: '2' }])
         .mockResolvedValueOnce([{ court_count: '2' }])
-        .mockResolvedValueOnce([{ total_qty: '12' }]);
+        .mockResolvedValueOnce([{ total_qty: '12' }])
+        .mockResolvedValueOnce([{ cantina_revenue: '8000' }])
+        .mockResolvedValueOnce([{ name: 'Agua', total_qty: '7' }]);
 
       const result = await service.getActiveSessionKpis();
 
@@ -346,7 +350,7 @@ describe('CashRegisterService', () => {
       expect(result.cashTotal).toBe(30000);
       expect(result.transferTotal).toBe(20000);
       expect(result.completedBookings).toBe(5);
-      expect(result.productsSold).toBe(12);
+      expect(result.cantinaItemsSold).toBe(12);
     });
 
     it('calcula la tasa de ocupación en base a canchas y slots del día', async () => {
@@ -355,8 +359,12 @@ describe('CashRegisterService', () => {
       dataSource.query
         .mockResolvedValueOnce([{ total: '0', cash: '0', transfer: '0' }])
         .mockResolvedValueOnce([{ completed: '7' }])
+        .mockResolvedValueOnce([{ live: '0' }])
+        .mockResolvedValueOnce([{ canceled: '0' }])
         .mockResolvedValueOnce([{ court_count: '2' }]) // 2 canchas × 14 slots = 28
-        .mockResolvedValueOnce([{ total_qty: '0' }]);
+        .mockResolvedValueOnce([{ total_qty: '0' }])
+        .mockResolvedValueOnce([{ cantina_revenue: '0' }])
+        .mockResolvedValueOnce([]);
 
       const result = await service.getActiveSessionKpis();
 
@@ -371,8 +379,12 @@ describe('CashRegisterService', () => {
       dataSource.query
         .mockResolvedValueOnce([{ total: '0', cash: '0', transfer: '0' }])
         .mockResolvedValueOnce([{ completed: '3' }])
+        .mockResolvedValueOnce([{ live: '0' }])
+        .mockResolvedValueOnce([{ canceled: '0' }])
         .mockResolvedValueOnce([{ court_count: '0' }])
-        .mockResolvedValueOnce([{ total_qty: '0' }]);
+        .mockResolvedValueOnce([{ total_qty: '0' }])
+        .mockResolvedValueOnce([{ cantina_revenue: '0' }])
+        .mockResolvedValueOnce([]);
 
       const result = await service.getActiveSessionKpis();
 

@@ -113,6 +113,17 @@ export class CashRegisterService {
     });
 
     if (openSession) {
+      // Guardia de jornada atrasada: si la sesión pertenece a un día comercial anterior,
+      // bloquear nuevas operaciones para forzar el Cierre Z antes de continuar.
+      const commercialDate = this.getCommercialDate();
+      if (openSession.date < commercialDate) {
+        throw new ConflictException({
+          errorCode: 'CAJA_JORNADA_ATRASADA',
+          message:
+            `La sesión de caja activa corresponde a la jornada del ${openSession.date}. ` +
+            `Realizá el Cierre Z de esa jornada en el módulo de Caja antes de registrar operaciones del día de hoy (${commercialDate}).`,
+        });
+      }
       return openSession;
     }
 
@@ -173,6 +184,8 @@ export class CashRegisterService {
       createdByUsername: string | null;
     }[];
     isOpen: boolean;
+    /** true cuando la sesión abierta pertenece a una jornada anterior al día comercial actual. */
+    staleSession: boolean;
   }> {
     let session: CashSession | null;
 
@@ -201,6 +214,7 @@ export class CashRegisterService {
         initialBalance: 0,
         transactions: [],
         isOpen: false,
+        staleSession: false,
       };
     }
 
@@ -236,6 +250,11 @@ export class CashRegisterService {
       [session.id],
     );
 
+    const staleSession =
+      session.status === CashSessionStatus.OPEN &&
+      !date && // solo relevante en la consulta "sin fecha" (sesión activa live)
+      session.date < this.getCommercialDate();
+
     return {
       session,
       cashExpected,
@@ -244,6 +263,7 @@ export class CashRegisterService {
       initialBalance: Number(session.initialBalance) || 0,
       transactions,
       isOpen: session.status === CashSessionStatus.OPEN,
+      staleSession,
     };
   }
 
@@ -322,9 +342,16 @@ export class CashRegisterService {
     cashTotal: number;
     transferTotal: number;
     completedBookings: number;
+    liveBookings: number;
+    canceledBookings: number;
+    totalOperations: number;
     totalSlots: number;
     occupationRate: number;
-    productsSold: number;
+    cantinaItemsSold: number;
+    cantinaRevenue: number;
+    courtsRevenue: number;
+    topProduct: { name: string; quantity: number } | null;
+    averageTicket: number;
   }> {
     // Buscar sesión abierta
     const openSession = await this.sessionRepo.findOne({
@@ -340,73 +367,160 @@ export class CashRegisterService {
         cashTotal: 0,
         transferTotal: 0,
         completedBookings: 0,
+        liveBookings: 0,
+        canceledBookings: 0,
+        totalOperations: 0,
         totalSlots: 0,
         occupationRate: 0,
-        productsSold: 0,
+        cantinaItemsSold: 0,
+        cantinaRevenue: 0,
+        courtsRevenue: 0,
+        topProduct: null,
+        averageTicket: 0,
       };
     }
 
     const sessionDate = openSession.date; // YYYY-MM-DD de la jornada comercial
 
-    const [revenueRows, bookingRows, courtRows, productsRows] = await Promise.all([
-      // Ingresos desde las transacciones de esta sesión
-      this.dataSource.query<{ total: string; cash: string; transfer: string }[]>(
-        `SELECT
-           COALESCE(SUM(amount_cash + amount_transfer), 0) AS total,
-           COALESCE(SUM(amount_cash),                  0) AS cash,
-           COALESCE(SUM(amount_transfer),              0) AS transfer
-         FROM transactions
-         WHERE cash_session_id = $1`,
-        [openSession.id],
-      ),
-      // Turnos completados de la fecha comercial de la sesión
-      this.dataSource.query<{ completed: string }[]>(
-        `SELECT COUNT(*) AS completed
-         FROM bookings
-         WHERE date = $1 AND status = 'completed'`,
-        [sessionDate],
-      ),
-      // Canchas activas
-      this.dataSource.query<{ court_count: string }[]>(
-        `SELECT COUNT(*) AS court_count FROM courts WHERE is_active = true`,
-      ),
-      // Productos vendidos: ventas POS + consumos de turnos completados, ambos de la sesión
-      this.dataSource.query<{ total_qty: string }[]>(
-        `SELECT COALESCE(SUM(qty), 0) AS total_qty
-         FROM (
-           SELECT si.quantity AS qty
-           FROM sale_items si
-           JOIN sales     sa ON sa.id   = si.sale_id
-           JOIN transactions t  ON t.reference_id = sa.id AND t.type = 'sale'
-           WHERE t.cash_session_id = $1
+    const [
+      revenueRows,
+      bookingRows,
+      liveBookingRows,
+      canceledBookingRows,
+      courtRows,
+      cantinaItemsRows,
+      cantinaRevenueRows,
+      topProductRows,
+    ] = await Promise.all([
+        // Ingresos totales desde las transacciones de esta sesión
+        this.dataSource.query<{ total: string; cash: string; transfer: string }[]>(
+          `SELECT
+             COALESCE(SUM(amount_cash + amount_transfer), 0) AS total,
+             COALESCE(SUM(amount_cash),                  0) AS cash,
+             COALESCE(SUM(amount_transfer),              0) AS transfer
+           FROM transactions
+           WHERE cash_session_id = $1`,
+          [openSession.id],
+        ),
+        // Turnos completados de la fecha comercial de la sesión
+        this.dataSource.query<{ completed: string }[]>(
+          `SELECT COUNT(*) AS completed
+           FROM bookings
+           WHERE date = $1 AND status = 'completed'`,
+          [sessionDate],
+        ),
+        // Turnos en juego en este momento
+        this.dataSource.query<{ live: string }[]>(
+          `SELECT COUNT(*) AS live
+           FROM bookings
+           WHERE date = $1 AND status = 'playing'`,
+          [sessionDate],
+        ),
+        // Turnos cancelados de la fecha comercial
+        this.dataSource.query<{ canceled: string }[]>(
+          `SELECT COUNT(*) AS canceled
+           FROM bookings
+           WHERE date = $1 AND status = 'cancelled'`,
+          [sessionDate],
+        ),
+        // Canchas activas
+        this.dataSource.query<{ court_count: string }[]>(
+          `SELECT COUNT(*) AS court_count FROM courts WHERE is_active = true`,
+        ),
+        // Unidades vendidas de cantina: ventas POS + consumos de turnos completados
+        this.dataSource.query<{ total_qty: string }[]>(
+          `SELECT COALESCE(SUM(qty), 0) AS total_qty
+           FROM (
+             SELECT si.quantity AS qty
+             FROM sale_items si
+             JOIN sales        sa ON sa.id = si.sale_id
+             JOIN transactions t  ON t.reference_id = sa.id AND t.type = 'sale'
+             WHERE t.cash_session_id = $1
 
-           UNION ALL
+             UNION ALL
 
-           SELECT bi.quantity AS qty
-           FROM booking_items bi
-           JOIN bookings b ON b.id = bi.booking_id
-           WHERE b.date = $2 AND b.status = 'completed'
-         ) sub`,
-        [openSession.id, sessionDate],
-      ),
-    ]);
+             SELECT bi.quantity AS qty
+             FROM booking_items bi
+             JOIN bookings b ON b.id = bi.booking_id
+             WHERE b.date = $2 AND b.status = 'completed'
+           ) sub`,
+          [openSession.id, sessionDate],
+        ),
+        // Ingresos de cantina: monto de ventas POS + valor monetario de items de turnos
+        this.dataSource.query<{ cantina_revenue: string }[]>(
+          `SELECT
+             COALESCE(
+               (SELECT SUM(t.amount_cash + t.amount_transfer)
+                FROM transactions t
+                WHERE t.cash_session_id = $1 AND t.type = 'sale'),
+             0) +
+             COALESCE(
+               (SELECT SUM(bi.unit_price * bi.quantity)
+                FROM booking_items bi
+                JOIN bookings b ON b.id = bi.booking_id
+                WHERE b.date = $2 AND b.status = 'completed'),
+             0) AS cantina_revenue`,
+          [openSession.id, sessionDate],
+        ),
+        // Producto más vendido en la sesión (POS + consumos de turnos)
+        this.dataSource.query<{ name: string; total_qty: string }[]>(
+          `SELECT p.name, SUM(sub.qty) AS total_qty
+           FROM (
+             SELECT si.product_id, si.quantity AS qty
+             FROM sale_items si
+             JOIN sales        sa ON sa.id = si.sale_id
+             JOIN transactions t  ON t.reference_id = sa.id AND t.type = 'sale'
+             WHERE t.cash_session_id = $1
+
+             UNION ALL
+
+             SELECT bi.product_id, bi.quantity AS qty
+             FROM booking_items bi
+             JOIN bookings b ON b.id = bi.booking_id
+             WHERE b.date = $2 AND b.status = 'completed'
+           ) sub
+           JOIN products p ON p.id = sub.product_id
+           GROUP BY p.id, p.name
+           ORDER BY total_qty DESC
+           LIMIT 1`,
+          [openSession.id, sessionDate],
+        ),
+      ]);
 
     const completedBookings = parseInt(bookingRows[0]?.completed ?? '0', 10);
+    const liveBookings = parseInt(liveBookingRows[0]?.live ?? '0', 10);
+    const canceledBookings = parseInt(canceledBookingRows[0]?.canceled ?? '0', 10);
+    const cantinaItemsSold = parseInt(cantinaItemsRows[0]?.total_qty ?? '0', 10);
+    const totalOperations = liveBookings + completedBookings + canceledBookings + cantinaItemsSold;
+
     const courtCount = parseInt(courtRows[0]?.court_count ?? '1', 10);
     const totalSlots = courtCount * 14; // 9hs a 22hs inclusive
     const occupationRate =
       totalSlots > 0 ? Math.round((completedBookings / totalSlots) * 100) : 0;
 
+    const totalRevenue = parseFloat(revenueRows[0]?.total ?? '0');
+    const cantinaRevenue = parseFloat(cantinaRevenueRows[0]?.cantina_revenue ?? '0');
+    const topProductRow = topProductRows[0] ?? null;
+
     return {
       sessionId: openSession.id,
       sessionDate,
-      totalRevenue: parseFloat(revenueRows[0]?.total ?? '0'),
+      totalRevenue,
       cashTotal: parseFloat(revenueRows[0]?.cash ?? '0'),
       transferTotal: parseFloat(revenueRows[0]?.transfer ?? '0'),
       completedBookings,
+      liveBookings,
+      canceledBookings,
+      totalOperations,
       totalSlots,
       occupationRate,
-      productsSold: parseInt(productsRows[0]?.total_qty ?? '0', 10),
+      cantinaItemsSold,
+      cantinaRevenue,
+      courtsRevenue: Math.max(0, totalRevenue - cantinaRevenue),
+      topProduct: topProductRow
+        ? { name: topProductRow.name, quantity: parseInt(topProductRow.total_qty, 10) }
+        : null,
+      averageTicket: completedBookings > 0 ? totalRevenue / completedBookings : 0,
     };
   }
 
@@ -414,10 +528,11 @@ export class CashRegisterService {
 
   /**
    * Retorna la fecha comercial vigente en zona horaria Argentina (YYYY-MM-DD).
-   * Implementa el "Cutoff Time": horas entre 00:00 y 03:59 AM pertenecen al día anterior.
+   * Implementa el "Cutoff Time": horas entre 00:00 y 04:59 AM pertenecen al día anterior.
+   * Ej: Sábado 01:42 AM → jornada del Viernes. Sábado 09:00 AM → jornada del Sábado.
    */
   getCommercialDate(): string {
-    const CUTOFF_HOUR = 4;
+    const CUTOFF_HOUR = 5;
     const TZ = 'America/Argentina/Buenos_Aires';
 
     const now = new Date();
