@@ -247,9 +247,16 @@ export class ReportsService {
     cashTotal: number;
     transferTotal: number;
     completedBookings: number;
+    liveBookings: number;
+    canceledBookings: number;
+    totalOperations: number;
     totalSlots: number;
     occupationRate: number;
-    productsSold: number;
+    cantinaItemsSold: number;
+    cantinaRevenue: number;
+    courtsRevenue: number;
+    topProduct: { name: string; quantity: number } | null;
+    averageTicket: number;
   }> {
     const kpis = await this.cashRegisterService.getActiveSessionKpis();
     return {
@@ -257,9 +264,16 @@ export class ReportsService {
       cashTotal: kpis.cashTotal,
       transferTotal: kpis.transferTotal,
       completedBookings: kpis.completedBookings,
+      liveBookings: kpis.liveBookings,
+      canceledBookings: kpis.canceledBookings,
+      totalOperations: kpis.totalOperations,
       totalSlots: kpis.totalSlots,
       occupationRate: kpis.occupationRate,
-      productsSold: kpis.productsSold,
+      cantinaItemsSold: kpis.cantinaItemsSold,
+      cantinaRevenue: kpis.cantinaRevenue,
+      courtsRevenue: kpis.courtsRevenue,
+      topProduct: kpis.topProduct,
+      averageTicket: kpis.averageTicket,
     };
   }
 

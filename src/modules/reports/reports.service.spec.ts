@@ -163,9 +163,16 @@ describe('ReportsService', () => {
         cashTotal: 30000,
         transferTotal: 20000,
         completedBookings: 8,
+        liveBookings: 2,
+        canceledBookings: 1,
+        totalOperations: 26,
         totalSlots: 28,
         occupationRate: 28,
-        productsSold: 15,
+        cantinaItemsSold: 15,
+        cantinaRevenue: 8000,
+        courtsRevenue: 42000,
+        topProduct: { name: 'Agua', quantity: 7 },
+        averageTicket: 6250,
       });
 
       const result = await service.getTodayKpis();
@@ -174,7 +181,7 @@ describe('ReportsService', () => {
       expect(result.cashTotal).toBe(30000);
       expect(result.completedBookings).toBe(8);
       expect(result.occupationRate).toBe(28);
-      expect(result.productsSold).toBe(15);
+      expect(result.cantinaItemsSold).toBe(15);
     });
 
     it('retorna ceros si no hay sesión activa', async () => {
@@ -185,9 +192,16 @@ describe('ReportsService', () => {
         cashTotal: 0,
         transferTotal: 0,
         completedBookings: 0,
+        liveBookings: 0,
+        canceledBookings: 0,
+        totalOperations: 0,
         totalSlots: 0,
         occupationRate: 0,
-        productsSold: 0,
+        cantinaItemsSold: 0,
+        cantinaRevenue: 0,
+        courtsRevenue: 0,
+        topProduct: null,
+        averageTicket: 0,
       });
 
       const result = await service.getTodayKpis();
