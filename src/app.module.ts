@@ -25,6 +25,9 @@ import { PosModule } from './modules/pos/pos.module';
 import { CashRegisterModule } from './modules/cash-register/cash-register.module';
 import { ReportsModule } from './modules/reports/reports.module';
 
+// ── Módulo transversal ────────────────────────────────
+import { SearchModule } from './modules/search/search.module';
+
 @Module({
   imports: [
     // ── Rate limiting global ───────────────────────────
@@ -63,6 +66,7 @@ import { ReportsModule } from './modules/reports/reports.module';
     PosModule,
     CashRegisterModule,
     ReportsModule,
+    SearchModule,
   ],
   providers: [
     // Filtro de excepciones HTTP global
