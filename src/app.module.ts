@@ -25,6 +25,9 @@ import { PosModule } from './modules/pos/pos.module';
 import { CashRegisterModule } from './modules/cash-register/cash-register.module';
 import { ReportsModule } from './modules/reports/reports.module';
 
+// ── Turnos Fijos ──────────────────────────────────────
+import { FixedBookingsModule } from './modules/fixed-bookings/fixed-bookings.module';
+
 // ── Módulo transversal ────────────────────────────────
 import { SearchModule } from './modules/search/search.module';
 
@@ -66,7 +69,9 @@ import { SearchModule } from './modules/search/search.module';
     PosModule,
     CashRegisterModule,
     ReportsModule,
+    FixedBookingsModule,
     SearchModule,
+
   ],
   providers: [
     // Filtro de excepciones HTTP global
