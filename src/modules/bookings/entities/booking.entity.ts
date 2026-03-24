@@ -15,6 +15,7 @@ import { Court } from '../../courts/entities/court.entity';
 import { User } from '../../users/entities/user.entity';
 import { BookingItem } from './booking-item.entity';
 import { BookingPayment } from './booking-payment.entity';
+import { FixedBooking } from '../../fixed-bookings/entities/fixed-booking.entity';
 
 export enum BookingStatus {
   BOOKED = 'booked', // Reservado (con o sin seña)
@@ -126,4 +127,22 @@ export class Booking {
     eager: false,
   })
   payment: BookingPayment;
+
+  /**
+   * FK nullable al turno fijo que originó este turno.
+   * null cuando el turno fue creado manualmente.
+   */
+  @Column({ name: 'fixed_booking_id', type: 'uuid', nullable: true })
+  fixedBookingId: string | null;
+
+  @ManyToOne(() => FixedBooking, { nullable: true, onDelete: 'SET NULL', eager: false })
+  @JoinColumn({ name: 'fixed_booking_id' })
+  fixedBooking: FixedBooking | null;
+
+  /**
+   * Snapshot del flag de seña del turno fijo al momento de generar este turno.
+   * false cuando el turno fue creado manualmente.
+   */
+  @Column({ name: 'has_deposit', type: 'boolean', default: false })
+  hasDeposit: boolean;
 }

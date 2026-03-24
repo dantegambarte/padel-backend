@@ -48,6 +48,7 @@ export class BookingsService {
       .leftJoinAndSelect('items.product', 'product')
       .leftJoinAndSelect('booking.payment', 'payment')
       .leftJoinAndSelect('booking.createdByUser', 'user')
+      .leftJoinAndSelect('booking.fixedBooking', 'fixedBooking')
       .where('booking.date = :date', { date: query.date })
       .andWhere('booking.status != :cancelled', {
         cancelled: BookingStatus.CANCELLED,
@@ -66,7 +67,7 @@ export class BookingsService {
   async findOne(id: string): Promise<Booking> {
     const booking = await this.bookingRepo.findOne({
       where: { id },
-      relations: ['court', 'items', 'items.product', 'payment', 'createdByUser'],
+      relations: ['court', 'items', 'items.product', 'payment', 'createdByUser', 'fixedBooking'],
     });
 
     if (!booking) {
