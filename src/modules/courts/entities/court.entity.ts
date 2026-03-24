@@ -33,6 +33,9 @@ export class Court {
   @Column({ name: 'price_120', type: 'numeric', precision: 10, scale: 2, default: 0 })
   price120: number;
 
+  @Column({ name: 'teacher_price', type: 'numeric', precision: 10, scale: 2, default: 0 })
+  teacherPrice: number;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

@@ -1,8 +1,8 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Court } from './entities/court.entity';
-import { CreateCourtDto, UpdateCourtDto } from './dto/create-court.dto';
+import { BulkPricesDto, CreateCourtDto, UpdateCourtDto } from './dto/create-court.dto';
 
 @Injectable()
 export class CourtsService {
@@ -36,6 +36,26 @@ export class CourtsService {
     }
     const court = this.courtRepo.create(dto);
     return this.courtRepo.save(court);
+  }
+
+  /**
+   * Actualiza los 4 precios de múltiples canchas en una sola transacción.
+   * Solo modifica los campos de precio — el resto de los campos no se toca.
+   */
+  async bulkUpdatePrices(dto: BulkPricesDto): Promise<Court[]> {
+    if (!dto.courtIds.length) return [];
+    const courts = await this.courtRepo.findBy({ id: In(dto.courtIds) });
+    const prices = {
+      price30:      dto.price30,
+      price60:      dto.price60,
+      price90:      dto.price90,
+      price120:     dto.price120,
+      teacherPrice: dto.teacherPrice,
+    };
+    for (const court of courts) {
+      Object.assign(court, prices);
+    }
+    return this.courtRepo.save(courts);
   }
 
   /** Actualiza parcialmente una cancha. */
