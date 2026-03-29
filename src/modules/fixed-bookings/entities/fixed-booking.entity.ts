@@ -8,7 +8,9 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
+
 import { Court } from '../../courts/entities/court.entity';
+import { Teacher } from '../../teachers/entities/teacher.entity';
 
 /**
  * Representa un "turno fijo" o reserva recurrente semanal.
@@ -47,10 +49,6 @@ export class FixedBooking {
   @Column({ name: 'court_id', type: 'uuid' })
   courtId: string;
 
-  /** Indica si el cliente entregó una seña para este turno fijo. */
-  @Column({ name: 'has_deposit', type: 'boolean', default: false })
-  hasDeposit: boolean;
-
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean;
 
@@ -60,6 +58,14 @@ export class FixedBooking {
 
   @Column({ type: 'text', nullable: true })
   notes: string | null;
+
+  /** FK nullable al profesor vinculado a este turno fijo. */
+  @Column({ name: 'teacher_id', type: 'uuid', nullable: true })
+  teacherId: string | null;
+
+  @ManyToOne(() => Teacher, { nullable: true, onDelete: 'SET NULL', eager: false })
+  @JoinColumn({ name: 'teacher_id' })
+  teacher: Teacher | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
