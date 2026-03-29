@@ -122,6 +122,44 @@ describe('CashRegisterService', () => {
       const result = await service.getCurrentSession('2025-06-01');
       expect(result.dayTotal).toBe(11000);
     });
+
+    it('turno trasnoche: devuelve la sesión CERRADA cuando closedAt está en la ventana comercial activa', async () => {
+      // Simula un turno abierto el viernes (date='2025-05-30') y cerrado el sábado
+      // a las 03:00 AM (después del cutoff de las 02:00 AM) → closedAt = ahora (en ventana).
+      const overnightSession = mockSession({
+        status: CashSessionStatus.CLOSED,
+        date: '2025-05-30',
+        closedAt: new Date(), // cerrado recientemente → dentro de la ventana comercial
+      });
+
+      sessionRepo.findOne
+        .mockResolvedValueOnce(null)              // no hay sesión OPEN
+        .mockResolvedValueOnce(overnightSession); // sesión cerrada trasnoche dentro de la ventana
+
+      dataSource.query
+        .mockResolvedValueOnce([{ cash_expected: '12000', transfer_total: '3000' }])
+        .mockResolvedValueOnce([]);
+
+      const result = await service.getCurrentSession();
+
+      expect(result.session).not.toBeNull();
+      expect(result.isOpen).toBe(false);
+      expect(result.session?.date).toBe('2025-05-30');
+      expect(result.cashExpected).toBe(12000);
+    });
+
+    it('turno trasnoche: devuelve session:null cuando no hay sesiones en la ventana activa', async () => {
+      // Ambos findOne retornan null: no hay OPEN ni CLOSED dentro de la ventana
+      sessionRepo.findOne
+        .mockResolvedValueOnce(null)  // no hay sesión OPEN
+        .mockResolvedValueOnce(null); // no hay sesión CLOSED en la ventana
+
+      const result = await service.getCurrentSession();
+
+      expect(result.session).toBeNull();
+      expect(result.isOpen).toBe(false);
+      expect(result.cashExpected).toBe(0);
+    });
   });
 
   // ─── openSession ──────────────────────────────────────────────────────────
@@ -311,6 +349,75 @@ describe('CashRegisterService', () => {
       expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 
       jest.restoreAllMocks();
+    });
+  });
+
+  // ─── closeDay ─────────────────────────────────────────────────────────────
+
+  describe('closeDay', () => {
+    const closedSessionRow = {
+      id: 'session-uuid',
+      date: '2025-06-01',
+      opened_at: new Date('2025-06-01T12:00:00Z'),
+      closed_at: new Date('2025-06-01T20:00:00Z'),
+      status: 'closed',
+      cash_counted: '10000',
+      difference: '500',
+      opened_by_name: 'Admin',
+      cash_expected: '9500',
+      transfer_total: '2000',
+    };
+
+    it('lanza ConflictException si hay un turno OPEN', async () => {
+      sessionRepo.findOne.mockResolvedValue(mockSession({ status: CashSessionStatus.OPEN }));
+
+      await expect(service.closeDay()).rejects.toThrow(ConflictException);
+    });
+
+    it('consolida los turnos cerrados en la ventana activa y retorna el resumen', async () => {
+      sessionRepo.findOne.mockResolvedValue(null); // no hay OPEN
+      dataSource.query.mockResolvedValue([closedSessionRow]);
+
+      const result = await service.closeDay();
+
+      expect(result.date).toBe('2025-06-01');
+      expect(result.sessions).toHaveLength(1);
+      expect(result.totalExpected).toBe(11500); // 9500 + 2000
+      expect(result.totalCounted).toBe(10000);
+    });
+
+    it('turno trasnoche: consolida sesiones con distinto date pero closedAt en la ventana', async () => {
+      // Turno A: abierto el viernes (date='2025-05-30'), cerrado el sábado
+      // Turno B: abierto el sábado (date='2025-05-31'), cerrado el sábado
+      const rowA = { ...closedSessionRow, id: 'sess-a', date: '2025-05-30', cash_expected: '5000', transfer_total: '1000', cash_counted: '5000', difference: '0' };
+      const rowB = { ...closedSessionRow, id: 'sess-b', date: '2025-05-31', cash_expected: '8000', transfer_total: '2000', cash_counted: '8000', difference: '0' };
+
+      sessionRepo.findOne.mockResolvedValue(null);
+      dataSource.query.mockResolvedValue([rowA, rowB]);
+
+      const result = await service.closeDay();
+
+      // Usa la fecha del primer turno (el más antiguo de la ventana)
+      expect(result.date).toBe('2025-05-30');
+      expect(result.sessions).toHaveLength(2);
+      expect(result.totalExpected).toBe(16000); // (5000+1000) + (8000+2000)
+    });
+
+    it('lanza NotFoundException si no hay turnos cerrados en la ventana activa', async () => {
+      sessionRepo.findOne.mockResolvedValue(null); // no hay OPEN
+      dataSource.query.mockResolvedValue([]);      // no hay CLOSED en la ventana
+
+      await expect(service.closeDay()).rejects.toThrow(NotFoundException);
+    });
+
+    it('totalCounted es null si algún turno no tiene cashCounted (no debería ocurrir en práctica)', async () => {
+      const rowWithoutCount = { ...closedSessionRow, cash_counted: null, difference: null };
+      sessionRepo.findOne.mockResolvedValue(null);
+      dataSource.query.mockResolvedValue([rowWithoutCount]);
+
+      const result = await service.closeDay();
+
+      expect(result.totalCounted).toBeNull();
     });
   });
 

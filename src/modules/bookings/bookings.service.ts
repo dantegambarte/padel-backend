@@ -481,6 +481,19 @@ export class BookingsService {
     return this.create(createDto, user);
   }
 
+  /**
+   * Marca un turno fijo como confirmado (isConfirmed = true).
+   * El admin lo llama desde el modal de detalle después de hablar con el cliente por WA.
+   */
+  async confirm(id: string): Promise<Booking> {
+    const booking = await this.bookingRepo.findOne({ where: { id } });
+    if (!booking) {
+      throw new NotFoundException(`Turno con ID ${id} no encontrado.`);
+    }
+    await this.bookingRepo.update({ id }, { isConfirmed: true });
+    return { ...booking, isConfirmed: true };
+  }
+
   /** Cancela un turno (solo admin) y restaura el stock de los productos consumidos. */
   async cancel(id: string, user: User): Promise<void> {
     if (user.role !== UserRole.ADMIN) {

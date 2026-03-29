@@ -116,6 +116,32 @@ export class CashRegisterController {
   }
 
   /**
+   * POST /api/v1/cash/close-day
+   *
+   * Cierre de Jornada Completa (Cierre Z Día).
+   * Valida que no haya ningún turno abierto y devuelve el consolidado del día comercial actual.
+   * Si hay un turno abierto responde 409 — el cajero debe cerrarlo antes.
+   *
+   * Acceso: Admin y Employee (el empleado del turno noche cierra físicamente el club).
+   */
+  @Post('close-day')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.EMPLOYEE)
+  @ApiOperation({
+    summary: 'Cierre de Jornada Completa',
+    description:
+      'Verifica que no exista ningún turno abierto y retorna el consolidado del día comercial actual. ' +
+      'Falla con 409 si hay algún turno OPEN.',
+  })
+  @ApiResponse({ status: 200, description: 'Consolidado del día. Todos los turnos están cerrados.' })
+  @ApiResponse({ status: 409, description: 'Hay un turno abierto. Cerrarlo antes de proceder.' })
+  @ApiResponse({ status: 403, description: 'Acceso denegado.' })
+  closeDay() {
+    return this.cashRegisterService.closeDay();
+  }
+
+  /**
    * GET /api/v1/cash/daily-summary?date=YYYY-MM-DD
    *
    * Consolidado diario para el Administrador.

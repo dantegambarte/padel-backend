@@ -90,6 +90,21 @@ export class FixedBookingsController {
     return this.fixedBookingsService.deactivate(id);
   }
 
+  @Delete(':id/cascade')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Borrar en cascada un turno fijo (solo admin)',
+    description:
+      'Elimina todas las reservas futuras con estado "booked" asociadas a este turno fijo, ' +
+      'luego elimina el turno fijo. Las reservas pasadas o en curso no se modifican.',
+  })
+  @ApiParam({ name: 'id', type: 'string', format: 'uuid' })
+  @ApiResponse({ status: 200, description: 'Turno fijo y reservas futuras eliminados.' })
+  @ApiResponse({ status: 404, description: 'Turno fijo no encontrado.' })
+  deleteCascade(@Param('id', ParseUUIDPipe) id: string) {
+    return this.fixedBookingsService.deleteCascade(id);
+  }
+
   @Post(':id/generate')
   @ApiOperation({
     summary: 'Generar próximos turnos de un turno fijo (solo admin)',

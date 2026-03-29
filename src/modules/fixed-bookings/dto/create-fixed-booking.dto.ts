@@ -6,7 +6,6 @@ import {
   IsOptional,
   IsInt,
   IsIn,
-  IsBoolean,
   Min,
   Max,
   MaxLength,
@@ -52,11 +51,6 @@ export class CreateFixedBookingDto {
   @ApiProperty({ example: 'uuid-de-la-cancha' })
   @IsUUID('4', { message: 'courtId debe ser un UUID válido.' })
   courtId: string;
-
-  @ApiPropertyOptional({ example: true, description: '¿El cliente registró una seña para este turno?' })
-  @IsOptional()
-  @IsBoolean()
-  hasDeposit?: boolean;
 
   @ApiProperty({
     example: '2026-04-01',

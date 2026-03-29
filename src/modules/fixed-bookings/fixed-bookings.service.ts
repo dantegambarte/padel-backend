@@ -73,7 +73,6 @@ export class FixedBookingsService {
       hour: dto.hour,
       durationMinutes: dto.durationMinutes ?? 60,
       courtId: dto.courtId,
-      hasDeposit: dto.hasDeposit ?? false,
       isActive: true,
       startDate: dto.startDate,
       notes: dto.notes ?? null,
@@ -104,7 +103,6 @@ export class FixedBookingsService {
       ...(dto.hour !== undefined && { hour: dto.hour }),
       ...(dto.durationMinutes !== undefined && { durationMinutes: dto.durationMinutes }),
       ...(dto.courtId !== undefined && { courtId: dto.courtId }),
-      ...(dto.hasDeposit !== undefined && { hasDeposit: dto.hasDeposit }),
       ...(dto.isActive !== undefined && { isActive: dto.isActive }),
       ...(dto.startDate !== undefined && { startDate: dto.startDate }),
       ...(dto.notes !== undefined && { notes: dto.notes }),
@@ -132,6 +130,36 @@ export class FixedBookingsService {
     const fixed = await this.findOne(id);
     fixed.isActive = false;
     await this.fixedRepo.save(fixed);
+  }
+
+  /**
+   * Borrado en cascada: elimina todas las reservas individuales futuras
+   * con estado 'booked' asociadas al turno fijo, luego elimina el turno fijo.
+   * Las reservas pasadas o en curso no se tocan.
+   */
+  async deleteCascade(id: string): Promise<{ deleted: number }> {
+    await this.findOne(id); // lanza NotFoundException si no existe
+
+    const today = this.localDateStr();
+
+    const result = await this.bookingRepo
+      .createQueryBuilder()
+      .delete()
+      .from(Booking)
+      .where('fixed_booking_id = :id', { id })
+      .andWhere('date >= :today', { today })
+      .andWhere('status = :status', { status: BookingStatus.BOOKED })
+      .execute();
+
+    // Hard-delete del turno fijo. La FK booking.fixed_booking_id tiene
+    // onDelete: 'SET NULL', por lo que las reservas pasadas quedan intactas.
+    await this.fixedRepo.delete(id);
+
+    const deleted = result.affected ?? 0;
+    this.logger.log(
+      `Turno fijo ${id} eliminado en cascada. Reservas futuras borradas: ${deleted}.`,
+    );
+    return { deleted };
   }
 
   /**
@@ -188,7 +216,6 @@ export class FixedBookingsService {
         status: BookingStatus.BOOKED,
         createdByUserId: user.id,
         fixedBookingId: fixed.id,
-        hasDeposit: fixed.hasDeposit,
       });
 
       try {
@@ -234,6 +261,15 @@ export class FixedBookingsService {
       current.setDate(current.getDate() + 7);
     }
     return results;
+  }
+
+  /** Fecha de hoy en formato YYYY-MM-DD usando hora local (UTC-3 safe). */
+  private localDateStr(): string {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
   }
 
   /** Devuelve el precio de cancha según la duración del turno. */

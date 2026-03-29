@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { ScheduleModule } from '@nestjs/schedule';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 
 import { databaseConfig } from './config/database.config';
@@ -28,12 +29,20 @@ import { ReportsModule } from './modules/reports/reports.module';
 // ── Turnos Fijos ──────────────────────────────────────
 import { FixedBookingsModule } from './modules/fixed-bookings/fixed-bookings.module';
 
+// ── Profesores ────────────────────────────────────────
+import { TeachersModule } from './modules/teachers/teachers.module';
+
+// ── Recordatorios / Cron ──────────────────────────────
+import { RemindersModule } from './modules/reminders/reminders.module';
+
 // ── Módulo transversal ────────────────────────────────
 import { SearchModule } from './modules/search/search.module';
 
 @Module({
   imports: [
     // ── Rate limiting global ───────────────────────────
+    ScheduleModule.forRoot(),
+
     ThrottlerModule.forRoot([
       {
         name: 'default',
@@ -70,8 +79,9 @@ import { SearchModule } from './modules/search/search.module';
     CashRegisterModule,
     ReportsModule,
     FixedBookingsModule,
+    TeachersModule,
+    RemindersModule,
     SearchModule,
-
   ],
   providers: [
     // Filtro de excepciones HTTP global
