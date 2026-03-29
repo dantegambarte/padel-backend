@@ -97,4 +97,12 @@ export class CreateBookingDto {
   @IsInt()
   @IsIn([30, 60, 90, 120], { message: 'La duración debe ser 30, 60, 90 o 120 minutos.' })
   durationMinutes?: number;
+
+  @ApiPropertyOptional({
+    example: 'uuid-del-profesor',
+    description: 'ID del profesor asignado (solo para turnos de tipo professor)',
+  })
+  @IsOptional()
+  @IsUUID('4', { message: 'teacherId debe ser un UUID válido.' })
+  teacherId?: string;
 }
