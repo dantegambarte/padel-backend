@@ -6,8 +6,12 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
   ParseUUIDPipe,
+  ParseBoolPipe,
+  DefaultValuePipe,
+  ForbiddenException,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
@@ -16,8 +20,10 @@ import {
   ApiBearerAuth,
   ApiOperation,
   ApiParam,
+  ApiQuery,
   ApiResponse,
 } from '@nestjs/swagger';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 import { TeachersService } from './teachers.service';
 import { CreateTeacherDto } from './dto/create-teacher.dto';
@@ -36,25 +42,22 @@ export class TeachersController {
 
   /**
    * GET /teachers
-   * Devuelve solo profesores activos (usado por todos los roles para llenar selects).
+   * Sin parámetros   → solo profesores activos (todos los roles autenticados).
+   * ?includeInactive=true → activos + inactivos (exclusivo para admin).
    */
   @Get()
-  @ApiOperation({ summary: 'Listar profesores activos' })
-  @ApiResponse({ status: 200, description: 'Lista de profesores activos.' })
-  findAll() {
-    return this.teachersSvc.findAll();
-  }
-
-  /**
-   * GET /teachers/all
-   * Devuelve todos los profesores incluyendo inactivos (admin).
-   */
-  @Get('all')
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Listar todos los profesores (admin)' })
-  findAllIncludingInactive() {
-    return this.teachersSvc.findAllIncludingInactive();
+  @ApiOperation({ summary: 'Listar profesores (activos por defecto; admin puede incluir inactivos)' })
+  @ApiQuery({ name: 'includeInactive', required: false, type: Boolean, description: 'true = incluir inactivos (solo admin)' })
+  @ApiResponse({ status: 200, description: 'Lista de profesores.' })
+  @ApiResponse({ status: 403, description: 'Forbidden — solo admin puede pedir includeInactive=true.' })
+  findAll(
+    @Query('includeInactive', new DefaultValuePipe(false), ParseBoolPipe) includeInactive: boolean,
+    @CurrentUser('role') role: UserRole,
+  ) {
+    if (includeInactive && role !== UserRole.ADMIN) {
+      throw new ForbiddenException('Solo administradores pueden listar profesores inactivos.');
+    }
+    return this.teachersSvc.findAll(includeInactive);
   }
 
   @Get(':id')

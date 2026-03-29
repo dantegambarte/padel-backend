@@ -13,17 +13,16 @@ export class TeachersService {
     private readonly teacherRepo: Repository<Teacher>,
   ) {}
 
-  /** Lista solo profesores activos, ordenados alfabéticamente. */
-  findAll(): Promise<Teacher[]> {
+  /**
+   * Lista profesores ordenados alfabéticamente.
+   * @param includeInactive - `false` (por defecto): solo activos.
+   *                          `true`: activos e inactivos (uso exclusivo de admin).
+   */
+  findAll(includeInactive = false): Promise<Teacher[]> {
     return this.teacherRepo.find({
-      where: { isActive: true },
+      where: includeInactive ? undefined : { isActive: true },
       order: { fullName: 'ASC' },
     });
-  }
-
-  /** Lista todos los profesores (activos e inactivos). Solo para admin. */
-  findAllIncludingInactive(): Promise<Teacher[]> {
-    return this.teacherRepo.find({ order: { fullName: 'ASC' } });
   }
 
   async findOne(id: string): Promise<Teacher> {
