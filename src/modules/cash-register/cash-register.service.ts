@@ -6,7 +6,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, QueryRunner, Repository } from 'typeorm';
+import { DataSource, MoreThanOrEqual, QueryRunner, Repository } from 'typeorm';
 import * as ExcelJS from 'exceljs';
 
 import { CashSession, CashSessionStatus } from './entities/cash-session.entity';
@@ -196,13 +196,32 @@ export class CashRegisterService {
         relations: ['openedByUser', 'closedByUser'],
       });
     } else {
-      // Buscar ÚNICAMENTE la sesión ABIERTA activa.
-      // Si está cerrada → session: null → frontend muestra pantalla de Apertura.
+      // Primero buscar la sesión ABIERTA activa.
       session = await this.sessionRepo.findOne({
         where: { status: CashSessionStatus.OPEN },
         order: { openedAt: 'DESC' } as any,
         relations: ['openedByUser', 'closedByUser'],
       });
+
+      // Si no hay sesión OPEN, buscar la sesión CERRADA más reciente dentro de la
+      // ventana del día comercial activo (desde las 02:00 AM hora Argentina).
+      //
+      // SE FILTRA POR closedAt, NO POR date. Esto es crítico para los turnos trasnoche:
+      // un turno abierto el viernes (date='2025-03-27') y cerrado el sábado a las 03:00
+      // tiene session.date='viernes' pero closedAt='sábado'. Filtrar por date='sábado'
+      // no lo encontraría → el frontend mostraría "Abrir Turno" en lugar del
+      // "Panel de Control post-cierre". El filtro por closedAt lo resuelve sin ambigüedad.
+      if (!session) {
+        const commercialDayStart = this.getCommercialDayStart();
+        session = await this.sessionRepo.findOne({
+          where: {
+            status: CashSessionStatus.CLOSED,
+            closedAt: MoreThanOrEqual(commercialDayStart),
+          },
+          order: { closedAt: 'DESC' } as any,
+          relations: ['openedByUser', 'closedByUser'],
+        });
+      }
     }
 
     if (!session) {
@@ -357,6 +376,116 @@ export class CashRegisterService {
     const balances = difference === 0 ? 'exact' : difference > 0 ? 'surplus' : 'shortage';
 
     return { session, cashExpected, transferTotal, dayTotal: cashExpected + transferTotal, difference, balances };
+  }
+
+  // ─── Cierre de Jornada Completa ─────────────────────────────────────────
+
+  /**
+   * Valida que no exista ninguna sesión OPEN y devuelve el consolidado del día comercial actual.
+   * Si hay una sesión abierta lanza 409 — el cajero debe cerrar su turno antes.
+   */
+  async closeDay(): Promise<{
+    date: string;
+    totalExpected: number;
+    totalCounted: number | null;
+    sessions: {
+      sessionId: string;
+      openedByName: string;
+      openedAt: Date;
+      closedAt: Date | null;
+      status: CashSessionStatus;
+      cashExpected: number;
+      transferTotal: number;
+      dayTotal: number;
+      cashCounted: number | null;
+      difference: number | null;
+    }[];
+  }> {
+    const openSession = await this.sessionRepo.findOne({
+      where: { status: CashSessionStatus.OPEN },
+    });
+
+    if (openSession) {
+      throw new ConflictException(
+        'Hay un turno de caja abierto. Cerrá el turno actual antes de realizar el Cierre de Jornada.',
+      );
+    }
+
+    // Consolidar TODOS los turnos cerrados dentro de la ventana del día comercial activo
+    // (desde las 02:00 AM Argentina). Se filtra por closedAt para incluir correctamente
+    // los turnos trasnoche cuyo session.date es del día anterior al cierre físico.
+    // Ejemplo: turno abierto el viernes (date='2025-03-27') y cerrado el sábado a las 03:00
+    // tiene session.date='2025-03-27' pero closedAt=sábado → debe consolidarse en la jornada
+    // del sábado junto a cualquier otro turno cerrado ese mismo día comercial.
+    const commercialDayStart = this.getCommercialDayStart();
+
+    const rows = await this.dataSource.query<
+      {
+        id: string;
+        date: string;
+        opened_at: Date;
+        closed_at: Date | null;
+        status: string;
+        cash_counted: string | null;
+        difference: string | null;
+        opened_by_name: string | null;
+        cash_expected: string;
+        transfer_total: string;
+      }[]
+    >(
+      `SELECT
+         cs.id,
+         cs.date,
+         cs.opened_at,
+         cs.closed_at,
+         cs.status,
+         cs.cash_counted,
+         cs.difference,
+         COALESCE(u.full_name, u.username, 'Desconocido') AS opened_by_name,
+         COALESCE(SUM(t.amount_cash),     0) AS cash_expected,
+         COALESCE(SUM(t.amount_transfer), 0) AS transfer_total
+       FROM cash_sessions cs
+       LEFT JOIN users u        ON u.id  = cs.opened_by_user_id
+       LEFT JOIN transactions t ON t.cash_session_id = cs.id
+       WHERE cs.status = 'closed' AND cs.closed_at >= $1
+       GROUP BY cs.id, u.full_name, u.username
+       ORDER BY cs.opened_at ASC`,
+      [commercialDayStart],
+    );
+
+    if (!rows.length) {
+      throw new NotFoundException(
+        'No hay turnos cerrados en el día comercial activo. Cerrá al menos un turno antes de realizar el Cierre de Jornada.',
+      );
+    }
+
+    const sessions = rows.map((row) => {
+      const cashExpected = parseFloat(row.cash_expected);
+      const transferTotal = parseFloat(row.transfer_total);
+      return {
+        sessionId: row.id,
+        openedByName: row.opened_by_name ?? 'Desconocido',
+        openedAt: row.opened_at,
+        closedAt: row.closed_at,
+        status: row.status as CashSessionStatus,
+        cashExpected,
+        transferTotal,
+        dayTotal: cashExpected + transferTotal,
+        cashCounted: row.cash_counted != null ? parseFloat(row.cash_counted) : null,
+        difference: row.difference != null ? parseFloat(row.difference) : null,
+      };
+    });
+
+    const totalExpected = sessions.reduce((s, sess) => s + sess.dayTotal, 0);
+    const allClosed = sessions.every((s) => s.cashCounted !== null);
+    const totalCounted = allClosed
+      ? sessions.reduce((s, sess) => s + (sess.cashCounted ?? 0), 0)
+      : null;
+
+    // Usar la fecha del primer turno (el más antiguo de la ventana) como fecha de jornada.
+    const date = rows[0].date;
+
+    return { date, totalExpected, totalCounted, sessions };
   }
 
   // ─── KPIs de la Sesión Activa (para el Dashboard) ───────────────────────
@@ -1147,6 +1276,47 @@ export class CashRegisterService {
   }
 
   // ─── Helpers ─────────────────────────────────────────────────────────────
+
+  /**
+   * Retorna el inicio del día comercial activo como timestamp UTC.
+   * El día comercial comienza a las 02:00 AM hora Argentina (UTC-3 → 05:00 UTC).
+   * Si la hora actual es anterior a las 02:00 AM Argentina, el día comercial comenzó
+   * AYER a las 02:00 AM.
+   *
+   * Se utiliza para filtrar sesiones por ventana temporal sin depender del campo `date`
+   * de la sesión, resolviendo así el caso de turnos trasnoche donde session.date es del
+   * día anterior al cierre físico.
+   */
+  private getCommercialDayStart(): Date {
+    const TZ = 'America/Argentina/Buenos_Aires';
+    const CUTOFF_HOUR = 2;
+    const ARG_UTC_OFFSET = 3; // Argentina es UTC-3, sin DST
+
+    const now = new Date();
+    const hourParts = new Intl.DateTimeFormat('en-US', {
+      timeZone: TZ,
+      hour: 'numeric',
+      hour12: false,
+    }).formatToParts(now);
+    const currentHour = parseInt(
+      hourParts.find((p) => p.type === 'hour')?.value ?? '12',
+      10,
+    );
+
+    const argDateStr = now.toLocaleDateString('en-CA', { timeZone: TZ });
+    const [year, month, day] = argDateStr.split('-').map(Number);
+
+    if (currentHour < CUTOFF_HOUR) {
+      // Antes del cutoff: el día comercial comenzó AYER a las 02:00 AM Argentina
+      return new Date(
+        Date.UTC(year, month - 1, day - 1, CUTOFF_HOUR + ARG_UTC_OFFSET, 0, 0),
+      );
+    }
+    // Después del cutoff: el día comercial comenzó HOY a las 02:00 AM Argentina
+    return new Date(
+      Date.UTC(year, month - 1, day, CUTOFF_HOUR + ARG_UTC_OFFSET, 0, 0),
+    );
+  }
 
   /**
    * Retorna la fecha comercial vigente en zona horaria Argentina (YYYY-MM-DD).
