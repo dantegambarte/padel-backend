@@ -16,6 +16,7 @@ import { User } from '../../users/entities/user.entity';
 import { BookingItem } from './booking-item.entity';
 import { BookingPayment } from './booking-payment.entity';
 import { FixedBooking } from '../../fixed-bookings/entities/fixed-booking.entity';
+import { Teacher } from '../../teachers/entities/teacher.entity';
 
 export enum BookingStatus {
   BOOKED = 'booked', // Reservado (con o sin seña)
@@ -140,9 +141,22 @@ export class Booking {
   fixedBooking: FixedBooking | null;
 
   /**
-   * Snapshot del flag de seña del turno fijo al momento de generar este turno.
-   * false cuando el turno fue creado manualmente.
+   * Indica si el cliente confirmó su asistencia al turno fijo.
+   * Solo aplica para turnos con fixedBookingId != null.
+   * El admin lo marca desde el modal de detalle tras contactar al cliente por WA.
    */
-  @Column({ name: 'has_deposit', type: 'boolean', default: false })
-  hasDeposit: boolean;
+  @Column({ name: 'is_confirmed', type: 'boolean', default: false })
+  isConfirmed: boolean;
+
+  /**
+   * FK nullable al profesor vinculado a este turno.
+   * Cuando está presente el priceType suele ser 'professor'.
+   */
+  @Column({ name: 'teacher_id', type: 'uuid', nullable: true })
+  teacherId: string | null;
+
+  @ManyToOne(() => Teacher, { nullable: true, onDelete: 'SET NULL', eager: false })
+  @JoinColumn({ name: 'teacher_id' })
+  teacher: Teacher | null;
+
 }

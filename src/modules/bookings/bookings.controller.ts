@@ -186,6 +186,22 @@ export class BookingsController {
   }
 
   /**
+   * PATCH /api/v1/bookings/:id/confirm
+   *
+   * Marca un turno fijo como confirmado (isConfirmed = true).
+   * El admin llama este endpoint tras recibir confirmación del cliente por WhatsApp.
+   *
+   * Acceso: Admin y Empleado.
+   */
+  @Patch(':id/confirm')
+  @ApiOperation({ summary: 'Confirmar asistencia de un turno fijo' })
+  @ApiParam({ name: 'id', type: 'string', format: 'uuid' })
+  @ApiResponse({ status: 200, description: 'Turno marcado como confirmado.' })
+  confirmBooking(@Param('id', ParseUUIDPipe) id: string) {
+    return this.bookingsService.confirm(id);
+  }
+
+  /**
    * DELETE /api/v1/bookings/:id
    *
    * Cancelación lógica de un turno (status = CANCELLED).
