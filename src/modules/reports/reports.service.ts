@@ -242,7 +242,12 @@ export class ReportsService {
    * la sesión OPEN actual (no el día calendario), garantizando que
    * el cruce de medianoche no rompa la contabilidad del turno.
    */
-  async getTodayKpis(): Promise<{
+  /**
+   * KPIs de la sesión de caja activa para el Dashboard Admin.
+   * El parámetro `date` se acepta para futura extensión (consulta histórica);
+   * actualmente la implementación siempre usa la sesión activa.
+   */
+  async getKpis(_date?: string): Promise<{
     totalRevenue: number;
     cashTotal: number;
     transferTotal: number;
@@ -278,10 +283,11 @@ export class ReportsService {
   }
 
   /**
-   * Ingresos de los últimos 7 días desglosados en Efectivo y Transferencia.
+   * Ingresos de los últimos N días desglosados en Efectivo y Transferencia.
    * Alimenta el gráfico de barras del Dashboard Admin.
+   * @param days - Número de días hacia atrás (default: 7).
    */
-  async getLast7DaysRevenue(): Promise<
+  async getRevenueTrend(days = 7): Promise<
     { date: string; cash: number; transfer: number; total: number }[]
   > {
     const rows = await this.dataSource.query<
@@ -293,11 +299,11 @@ export class ReportsService {
          COALESCE(SUM(amount_transfer),                       0)   AS transfer
        FROM transactions
        WHERE (created_at AT TIME ZONE $1)::date
-             BETWEEN (CURRENT_DATE AT TIME ZONE $1)::date - 6
+             BETWEEN (CURRENT_DATE AT TIME ZONE $1)::date - ($2 - 1)
              AND     (CURRENT_DATE AT TIME ZONE $1)::date
        GROUP BY 1
        ORDER BY 1`,
-      [this.TZ],
+      [this.TZ, days],
     );
 
     return rows.map((r) => ({

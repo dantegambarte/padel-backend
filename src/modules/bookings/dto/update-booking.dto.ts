@@ -4,10 +4,13 @@ import {
   IsOptional,
   IsEnum,
   IsArray,
+  IsBoolean,
   IsNumber,
+  IsUUID,
   Min,
   ValidateNested,
   MaxLength,
+  Matches,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { BookingStatus } from '../entities/booking.entity';
@@ -50,4 +53,26 @@ export class UpdateBookingDto {
   @IsNumber()
   @Min(0)
   amountTransfer?: number;
+
+  @ApiPropertyOptional({ example: 'uuid-de-la-cancha', description: 'Cancha destino (mover turno)' })
+  @IsOptional()
+  @IsUUID('4')
+  courtId?: string;
+
+  @ApiPropertyOptional({ example: '2025-03-15', description: 'Fecha destino en formato YYYY-MM-DD (mover turno)' })
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'La fecha debe tener el formato YYYY-MM-DD.' })
+  date?: string;
+
+  @ApiPropertyOptional({ example: '15:00', description: 'Hora destino en formato HH:MM (mover turno)' })
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{2}:\d{2}$/, { message: 'La hora debe tener el formato HH:MM.' })
+  hour?: string;
+
+  @ApiPropertyOptional({ example: true, description: 'Marcar turno fijo como confirmado (isConfirmed = true)' })
+  @IsOptional()
+  @IsBoolean()
+  isConfirmed?: boolean;
 }

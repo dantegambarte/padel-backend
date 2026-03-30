@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards, DefaultValuePipe, ParseIntPipe } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { ReportsService } from './reports.service';
 import { ReportQueryDto } from './dto/report-query.dto';
@@ -16,31 +16,38 @@ export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
 
   /**
-   * GET /api/v1/reports/today-kpis
+   * GET /api/v1/reports/kpis[?date=YYYY-MM-DD]
    *
    * KPIs del día actual para el Dashboard Admin:
    *   - Ingresos totales de hoy (efectivo + transferencia)
    *   - Turnos completados y tasa de ocupación
    *   - Unidades de productos vendidos
+   *
+   * Si no se envía `date`, se asume la sesión de caja activa (hoy).
    */
-  @Get('today-kpis')
-  @ApiOperation({ summary: 'KPIs de hoy para el Dashboard Admin' })
-  @ApiResponse({ status: 200, description: 'Métricas del día actual.' })
-  getTodayKpis() {
-    return this.reportsService.getTodayKpis();
+  @Get('kpis')
+  @ApiOperation({ summary: 'KPIs de caja para el Dashboard Admin' })
+  @ApiQuery({ name: 'date', required: false, example: '2025-03-15', description: 'Día a consultar (YYYY-MM-DD). Por defecto: sesión activa de hoy.' })
+  @ApiResponse({ status: 200, description: 'Métricas del día solicitado.' })
+  getKpis(@Query('date') date?: string) {
+    return this.reportsService.getKpis(date);
   }
 
   /**
-   * GET /api/v1/reports/last7days
+   * GET /api/v1/reports/revenue/trend?days=7
    *
-   * Ingresos de los últimos 7 días desglosados en Efectivo y Transferencia.
+   * Ingresos de los últimos N días desglosados en Efectivo y Transferencia.
    * Alimenta el gráfico de barras del Dashboard Admin.
+   * Por defecto `days=7`.
    */
-  @Get('last7days')
-  @ApiOperation({ summary: 'Ingresos de los últimos 7 días por método de pago' })
+  @Get('revenue/trend')
+  @ApiOperation({ summary: 'Tendencia de ingresos diarios por método de pago' })
+  @ApiQuery({ name: 'days', required: false, example: 7, description: 'Número de días hacia atrás a incluir (default: 7).' })
   @ApiResponse({ status: 200, description: 'Array de días con cash/transfer/total.' })
-  getLast7DaysRevenue() {
-    return this.reportsService.getLast7DaysRevenue();
+  getRevenueTrend(
+    @Query('days', new DefaultValuePipe(7), ParseIntPipe) days: number,
+  ) {
+    return this.reportsService.getRevenueTrend(days);
   }
 
   /**
@@ -149,19 +156,22 @@ export class ReportsController {
   }
 
   /**
-   * GET /api/v1/reports/transactions/export?dateFrom=&dateTo=
+   * GET /api/v1/reports/transactions?dateFrom=&dateTo=[&format=csv]
    *
    * Historial plano de todos los movimientos de caja del período,
    * listo para ser exportado a CSV por el frontend (PapaParse, etc.).
    * Cada fila incluye: fecha, hora, tipo, concepto, efectivo, transferencia,
    * total y usuario que lo registró.
+   *
+   * `format=csv` se acepta como indicador semántico; la respuesta siempre es JSON
+   * (el frontend realiza la conversión a CSV sin dependencias adicionales).
    */
-  @Get('transactions/export')
+  @Get('transactions')
   @ApiOperation({
-    summary: 'Exportar historial de transacciones',
+    summary: 'Historial de transacciones (exportable)',
     description:
       'Retorna un array plano con todos los movimientos de caja del período. ' +
-      'El frontend puede convertir este JSON a CSV sin dependencias adicionales.',
+      'Usar ?format=csv como indicador semántico; la conversión a CSV la realiza el frontend.',
   })
   @ApiQuery({
     name: 'date',
@@ -171,8 +181,8 @@ export class ReportsController {
   })
   @ApiQuery({ name: 'dateFrom', required: false, example: '2025-03-01' })
   @ApiQuery({ name: 'dateTo', required: false, example: '2025-03-31' })
-  @ApiResponse({ status: 200, description: 'Lista de transacciones para exportar.' })
-  getTransactionsExport(@Query() query: ReportQueryDto) {
+  @ApiResponse({ status: 200, description: 'Lista de transacciones.' })
+  getTransactions(@Query() query: ReportQueryDto) {
     return this.reportsService.getTransactionsExport(query);
   }
 }

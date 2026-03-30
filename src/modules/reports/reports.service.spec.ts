@@ -152,9 +152,9 @@ describe('ReportsService', () => {
     });
   });
 
-  // ─── getTodayKpis ─────────────────────────────────────────────────────────
+  // ─── getKpis ──────────────────────────────────────────────────────────────
 
-  describe('getTodayKpis', () => {
+  describe('getKpis', () => {
     it('delega a CashRegisterService.getActiveSessionKpis y mapea el resultado', async () => {
       cashRegisterService.getActiveSessionKpis.mockResolvedValue({
         sessionId: 'session-uuid',
@@ -175,7 +175,7 @@ describe('ReportsService', () => {
         averageTicket: 6250,
       });
 
-      const result = await service.getTodayKpis();
+      const result = await service.getKpis();
 
       expect(result.totalRevenue).toBe(50000);
       expect(result.cashTotal).toBe(30000);
@@ -204,22 +204,22 @@ describe('ReportsService', () => {
         averageTicket: 0,
       });
 
-      const result = await service.getTodayKpis();
+      const result = await service.getKpis();
       expect(result.totalRevenue).toBe(0);
       expect(result.occupationRate).toBe(0);
     });
   });
 
-  // ─── getLast7DaysRevenue ──────────────────────────────────────────────────
+  // ─── getRevenueTrend ──────────────────────────────────────────────────────
 
-  describe('getLast7DaysRevenue', () => {
+  describe('getRevenueTrend', () => {
     it('retorna array con fecha, cash, transfer y total', async () => {
       dataSource.query.mockResolvedValue([
         { date: '2025-05-26', cash: '5000', transfer: '2000' },
         { date: '2025-05-27', cash: '8000', transfer: '3500' },
       ]);
 
-      const result = await service.getLast7DaysRevenue();
+      const result = await service.getRevenueTrend();
 
       expect(result).toHaveLength(2);
       expect(result[0].total).toBe(7000);
@@ -229,8 +229,15 @@ describe('ReportsService', () => {
 
     it('retorna array vacío si no hay transacciones en los últimos 7 días', async () => {
       dataSource.query.mockResolvedValue([]);
-      const result = await service.getLast7DaysRevenue();
+      const result = await service.getRevenueTrend();
       expect(result).toEqual([]);
+    });
+
+    it('pasa el parámetro days a la query SQL', async () => {
+      dataSource.query.mockResolvedValue([]);
+      await service.getRevenueTrend(14);
+      const call = dataSource.query.mock.calls[0];
+      expect(call[1]).toContain(14);
     });
   });
 });

@@ -23,7 +23,6 @@ import { TransactionType } from '../cash-register/entities/transaction.entity';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { UpdateBookingDto } from './dto/update-booking.dto';
 import { QueryBookingsDto } from './dto/query-bookings.dto';
-import { RescheduleBookingDto } from './dto/reschedule-booking.dto';
 
 @Injectable()
 export class BookingsService {
@@ -82,6 +81,17 @@ export class BookingsService {
    * Usa advisory lock de PostgreSQL + constraint UNIQUE para prevenir overbooking.
    */
   async create(dto: CreateBookingDto, user: User): Promise<Booking> {
+    // If sourceId is provided, merge data from the source booking (duplicate mode).
+    if (dto.sourceId) {
+      const source = await this.findOne(dto.sourceId);
+      if (!dto.clientName)                dto.clientName      = source.clientName;
+      if (!dto.priceType)                 dto.priceType       = source.priceType as PriceType;
+      if (dto.durationMinutes === undefined) dto.durationMinutes = source.durationMinutes;
+      if (dto.items === undefined)        dto.items           = source.items.map((i) => ({ productId: i.productId, quantity: i.quantity }));
+      if (dto.amountCash === undefined)   dto.amountCash      = 0;
+      if (dto.amountTransfer === undefined) dto.amountTransfer = 0;
+    }
+
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -247,6 +257,59 @@ export class BookingsService {
         this.validateStatusTransition(booking.status, dto.status, user);
       }
 
+      // — RESCHEDULE (move) —
+      let rescheduleFields: { courtId?: string; date?: string; hour?: string } | null = null;
+      if (dto.courtId !== undefined || dto.date !== undefined || dto.hour !== undefined) {
+        if (
+          [BookingStatus.COMPLETED, BookingStatus.CANCELLED].includes(booking.status) &&
+          user.role !== UserRole.ADMIN
+        ) {
+          throw new ForbiddenException(
+            'Solo los administradores pueden mover turnos completados o cancelados.',
+          );
+        }
+
+        const targetCourtId = dto.courtId ?? booking.courtId;
+        const targetDate    = dto.date    ?? booking.date;
+        const targetHour    = dto.hour    ?? booking.hour;
+
+        const court = await queryRunner.manager.findOne(Court, {
+          where: { id: targetCourtId, isActive: true },
+        });
+        if (!court) {
+          throw new NotFoundException(`Cancha ${targetCourtId} no encontrada o inactiva.`);
+        }
+
+        const [h, m] = targetHour.split(':').map(Number);
+        const newStartMin = h * 60 + m;
+        const newEndMin   = newStartMin + booking.durationMinutes;
+
+        const conflict = await queryRunner.manager
+          .createQueryBuilder(Booking, 'b')
+          .setLock('pessimistic_write')
+          .where('b.court_id = :courtId', { courtId: targetCourtId })
+          .andWhere('b.date = :date', { date: targetDate })
+          .andWhere('b.id != :id', { id })
+          .andWhere('b.status != :cancelled', { cancelled: BookingStatus.CANCELLED })
+          .andWhere(
+            `(CAST(SPLIT_PART(b.hour,':',1) AS INT)*60 + CAST(SPLIT_PART(b.hour,':',2) AS INT)) < :end`,
+            { end: newEndMin },
+          )
+          .andWhere(
+            `:start < (CAST(SPLIT_PART(b.hour,':',1) AS INT)*60 + CAST(SPLIT_PART(b.hour,':',2) AS INT) + b.duration_minutes)`,
+            { start: newStartMin },
+          )
+          .getOne();
+
+        if (conflict) {
+          throw new ConflictException(
+            `El slot ${court.name} - ${targetHour}hs del ${targetDate} se solapa con el turno de ${conflict.clientName}.`,
+          );
+        }
+
+        rescheduleFields = { courtId: targetCourtId, date: targetDate, hour: targetHour };
+      }
+
       let itemsTotal = 0;
 
       if (dto.items !== undefined) {
@@ -352,6 +415,8 @@ export class BookingsService {
       const bookingFields: Partial<Booking> = {};
       if (dto.clientName) bookingFields.clientName = dto.clientName;
       if (dto.status) bookingFields.status = dto.status;
+      if (dto.isConfirmed !== undefined) bookingFields.isConfirmed = dto.isConfirmed;
+      if (rescheduleFields) Object.assign(bookingFields, rescheduleFields);
 
       if (Object.keys(bookingFields).length > 0) {
         await queryRunner.manager.update(Booking, { id: booking.id }, bookingFields);
@@ -371,127 +436,6 @@ export class BookingsService {
     } finally {
       await queryRunner.release();
     }
-  }
-
-  /**
-   * Mueve un turno a otra cancha / fecha / hora.
-   * - Verifica que el slot destino esté libre (anti-overbooking).
-   * - Actualiza courtId, date y hour en una sola transacción atómica.
-   * - Solo admin puede mover turnos en estado COMPLETED o CANCELLED.
-   */
-  async move(id: string, dto: RescheduleBookingDto, user: User): Promise<Booking> {
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
-      const booking = await queryRunner.manager.findOne(Booking, {
-        where: { id },
-        lock: { mode: 'pessimistic_write' },
-      });
-
-      if (!booking) throw new NotFoundException(`Turno con ID ${id} no encontrado.`);
-
-      if (
-        [BookingStatus.COMPLETED, BookingStatus.CANCELLED].includes(booking.status) &&
-        user.role !== UserRole.ADMIN
-      ) {
-        throw new ForbiddenException(
-          'Solo los administradores pueden mover turnos completados o cancelados.',
-        );
-      }
-
-      const court = await queryRunner.manager.findOne(Court, {
-        where: { id: dto.courtId, isActive: true },
-      });
-      if (!court) throw new NotFoundException(`Cancha ${dto.courtId} no encontrada o inactiva.`);
-
-      // Verificar que el slot destino esté libre
-      const [h, m] = dto.hour.split(':').map(Number);
-      const newStartMin = h * 60 + m;
-      const newEndMin = newStartMin + booking.durationMinutes;
-
-      const conflict = await queryRunner.manager
-        .createQueryBuilder(Booking, 'b')
-        .setLock('pessimistic_write')
-        .where('b.court_id = :courtId', { courtId: dto.courtId })
-        .andWhere('b.date = :date', { date: dto.date })
-        .andWhere('b.id != :id', { id })
-        .andWhere('b.status != :cancelled', { cancelled: BookingStatus.CANCELLED })
-        .andWhere(
-          `(CAST(SPLIT_PART(b.hour,':',1) AS INT)*60 + CAST(SPLIT_PART(b.hour,':',2) AS INT)) < :end`,
-          { end: newEndMin },
-        )
-        .andWhere(
-          `:start < (CAST(SPLIT_PART(b.hour,':',1) AS INT)*60 + CAST(SPLIT_PART(b.hour,':',2) AS INT) + b.duration_minutes)`,
-          { start: newStartMin },
-        )
-        .getOne();
-
-      if (conflict) {
-        throw new ConflictException(
-          `El slot ${court.name} - ${dto.hour}hs del ${dto.date} se solapa con el turno de ${conflict.clientName}.`,
-        );
-      }
-
-      await queryRunner.manager.update(Booking, { id }, {
-        courtId: dto.courtId,
-        date: dto.date,
-        hour: dto.hour,
-      });
-
-      await queryRunner.commitTransaction();
-      this.logger.log(
-        `Turno ${id} movido → ${court.name} ${dto.date} ${dto.hour}hs (por ${user.username})`,
-      );
-
-      return this.findOne(id);
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      this.handleDbError(error);
-    } finally {
-      await queryRunner.release();
-    }
-  }
-
-  /**
-   * Duplica un turno en un slot diferente.
-   * Copia clientName, priceType, durationMinutes e items del turno original.
-   * El pago del nuevo turno empieza en $0 (pendiente).
-   */
-  async duplicate(id: string, dto: RescheduleBookingDto, user: User): Promise<Booking> {
-    const source = await this.findOne(id);
-
-    // Reutilizar la lógica de creación con los datos del turno original
-    const createDto: CreateBookingDto = {
-      courtId: dto.courtId,
-      date: dto.date,
-      hour: dto.hour,
-      clientName: source.clientName,
-      priceType: source.priceType as any,
-      durationMinutes: source.durationMinutes,
-      amountCash: 0,
-      amountTransfer: 0,
-      items: source.items.map((i) => ({
-        productId: i.productId,
-        quantity: i.quantity,
-      })),
-    };
-
-    return this.create(createDto, user);
-  }
-
-  /**
-   * Marca un turno fijo como confirmado (isConfirmed = true).
-   * El admin lo llama desde el modal de detalle después de hablar con el cliente por WA.
-   */
-  async confirm(id: string): Promise<Booking> {
-    const booking = await this.bookingRepo.findOne({ where: { id } });
-    if (!booking) {
-      throw new NotFoundException(`Turno con ID ${id} no encontrado.`);
-    }
-    await this.bookingRepo.update({ id }, { isConfirmed: true });
-    return { ...booking, isConfirmed: true };
   }
 
   /** Cancela un turno (solo admin) y restaura el stock de los productos consumidos. */
