@@ -11,6 +11,7 @@ import {
   IsIn,
   Min,
   ValidateNested,
+  ValidateIf,
   Matches,
   MaxLength,
 } from 'class-validator';
@@ -55,11 +56,12 @@ export class CreateBookingDto {
   })
   hour: string;
 
-  @ApiProperty({ example: 'Carlos Rodríguez' })
+  @ApiPropertyOptional({ example: 'Carlos Rodríguez' })
+  @ValidateIf((o) => !o.sourceId)
   @IsString()
   @IsNotEmpty({ message: 'El nombre del cliente es obligatorio.' })
   @MaxLength(150)
-  clientName: string;
+  clientName?: string;
 
   @ApiPropertyOptional({ enum: PriceType, default: PriceType.STANDARD })
   @IsOptional()
@@ -105,4 +107,12 @@ export class CreateBookingDto {
   @IsOptional()
   @IsUUID('4', { message: 'teacherId debe ser un UUID válido.' })
   teacherId?: string;
+
+  @ApiPropertyOptional({
+    example: 'uuid-del-turno-origen',
+    description: 'ID del turno a duplicar. Cuando se envía, clientName/priceType/durationMinutes/items se heredan del turno origen.',
+  })
+  @IsOptional()
+  @IsUUID('4', { message: 'sourceId debe ser un UUID válido.' })
+  sourceId?: string;
 }

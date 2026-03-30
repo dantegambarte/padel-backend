@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Body,
   Query,
   Param,
@@ -69,7 +70,7 @@ export class CashRegisterController {
   }
 
   /**
-   * POST /api/v1/cash/open
+   * POST /api/v1/cash/sessions
    *
    * Abre una nueva jornada de caja de forma manual.
    * El empleado declara el fondo de caja / cambio inicial.
@@ -77,10 +78,10 @@ export class CashRegisterController {
    *
    * Acceso: Admin y Empleado (cualquier usuario autenticado puede abrir caja).
    */
-  @Post('open')
+  @Post('sessions')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
-    summary: 'Abrir jornada de caja',
+    summary: 'Abrir jornada de caja — Crear sesión',
     description:
       'Crea una nueva sesión de caja OPEN para la jornada comercial vigente. ' +
       'Registra el fondo de caja inicial declarado por el empleado. ' +
@@ -93,7 +94,7 @@ export class CashRegisterController {
   }
 
   /**
-   * POST /api/v1/cash/close — Cierre Z
+   * PATCH /api/v1/cash/sessions/current — Cierre Z
    *
    * Recibe el efectivo físico contado y cierra la sesión OPEN activa.
    * Devuelve el resumen del cierre con la diferencia calculada.
@@ -101,10 +102,10 @@ export class CashRegisterController {
    *
    * Acceso: Admin y Empleado (cualquier usuario autenticado puede cerrar caja).
    */
-  @Post('close')
+  @Patch('sessions/current')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Cierre de Turno — Cerrar el turno activo',
+    summary: 'Cierre de Turno — Cerrar la sesión activa',
     description:
       'Calcula diferencia entre efectivo del sistema y el contado físicamente. ' +
       'Cierra la sesión OPEN y bloquea nuevos cobros hasta que se abra una nueva.',
@@ -116,7 +117,7 @@ export class CashRegisterController {
   }
 
   /**
-   * POST /api/v1/cash/close-day
+   * POST /api/v1/cash/daily-closures
    *
    * Cierre de Jornada Completa (Cierre Z Día).
    * Valida que no haya ningún turno abierto y devuelve el consolidado del día comercial actual.
@@ -124,12 +125,12 @@ export class CashRegisterController {
    *
    * Acceso: Admin y Employee (el empleado del turno noche cierra físicamente el club).
    */
-  @Post('close-day')
+  @Post('daily-closures')
   @HttpCode(HttpStatus.OK)
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.EMPLOYEE)
   @ApiOperation({
-    summary: 'Cierre de Jornada Completa',
+    summary: 'Cierre de Jornada Completa — Crear cierre diario',
     description:
       'Verifica que no exista ningún turno abierto y retorna el consolidado del día comercial actual. ' +
       'Falla con 409 si hay algún turno OPEN.',
