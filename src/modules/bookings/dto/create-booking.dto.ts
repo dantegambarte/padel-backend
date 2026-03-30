@@ -56,12 +56,12 @@ export class CreateBookingDto {
   })
   hour: string;
 
-  @ApiProperty({ example: 'Carlos Rodríguez' })
+  @ApiPropertyOptional({ example: 'Carlos Rodríguez' })
   @ValidateIf((o) => !o.sourceId)
   @IsString()
   @IsNotEmpty({ message: 'El nombre del cliente es obligatorio.' })
   @MaxLength(150)
-  clientName: string;
+  clientName?: string;
 
   @ApiPropertyOptional({ enum: PriceType, default: PriceType.STANDARD })
   @IsOptional()
