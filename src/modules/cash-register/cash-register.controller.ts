@@ -70,6 +70,20 @@ export class CashRegisterController {
   }
 
   /**
+   * GET /api/v1/cash/sessions/suggestion
+   *
+   * Devuelve el efectivo físico contado en el último turno cerrado,
+   * para pre-cargar el "Fondo Inicial" del próximo turno (arrastre de fondo).
+   * Retorna `{ cashCounted: null }` si nunca hubo ningún cierre.
+   */
+  @Get('sessions/suggestion')
+  @ApiOperation({ summary: 'Fondo inicial sugerido (arrastre del último cierre)' })
+  @ApiResponse({ status: 200, description: '{ cashCounted: number | null }' })
+  getLastClosedSuggestion() {
+    return this.cashRegisterService.getLastClosedSuggestion();
+  }
+
+  /**
    * POST /api/v1/cash/sessions
    *
    * Abre una nueva jornada de caja de forma manual.
@@ -169,7 +183,7 @@ export class CashRegisterController {
     if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       throw new BadRequestException('El parámetro date debe tener formato YYYY-MM-DD.');
     }
-    const targetDate = date ?? this.cashRegisterService.getCommercialDate();
+    const targetDate = date ?? this.cashRegisterService.getBusinessDate();
     return this.cashRegisterService.getDailySummary(targetDate);
   }
 

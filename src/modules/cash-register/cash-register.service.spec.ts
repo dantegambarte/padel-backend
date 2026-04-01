@@ -316,11 +316,11 @@ describe('CashRegisterService', () => {
     });
   });
 
-  // ─── getCommercialDate ────────────────────────────────────────────────────
+  // ─── getBusinessDate ────────────────────────────────────────────────────
 
-  describe('getCommercialDate', () => {
+  describe('getBusinessDate', () => {
     it('retorna una fecha en formato YYYY-MM-DD', () => {
-      const result = service.getCommercialDate();
+      const result = service.getBusinessDate();
       expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     });
 
@@ -331,7 +331,7 @@ describe('CashRegisterService', () => {
       const fakeDate = new Date('2025-06-02T05:00:00.000Z'); // 02:00 AM en Argentina
       jest.spyOn(global, 'Date').mockImplementation(() => fakeDate as any);
 
-      const result = service.getCommercialDate();
+      const result = service.getBusinessDate();
 
       // Puede retornar 2025-06-01 (día anterior) o 2025-06-02 según TZ del runner de test
       // Lo importante: que devuelva formato válido
@@ -345,7 +345,7 @@ describe('CashRegisterService', () => {
       const fakeDate = new Date('2025-06-01T15:00:00.000Z');
       jest.spyOn(global, 'Date').mockImplementation(() => fakeDate as any);
 
-      const result = service.getCommercialDate();
+      const result = service.getBusinessDate();
       expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 
       jest.restoreAllMocks();

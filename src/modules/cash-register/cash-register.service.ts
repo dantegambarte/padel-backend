@@ -11,6 +11,7 @@ import * as ExcelJS from 'exceljs';
 
 import { CashSession, CashSessionStatus } from './entities/cash-session.entity';
 import { Transaction, TransactionType } from './entities/transaction.entity';
+import { DailyClosureRecord } from './entities/daily-closure.entity';
 import { User } from '../users/entities/user.entity';
 import { CloseSessionDto } from './dto/close-session.dto';
 import { OpenSessionDto } from './dto/open-session.dto';
@@ -38,6 +39,9 @@ export class CashRegisterService {
 
     @InjectRepository(Transaction)
     private readonly transactionRepo: Repository<Transaction>,
+
+    @InjectRepository(DailyClosureRecord)
+    private readonly dailyClosureRepo: Repository<DailyClosureRecord>,
   ) {}
 
   // ─── Apertura Manual ────────────────────────────────────────────────────────
@@ -60,9 +64,27 @@ export class CashRegisterService {
     }
 
     // Generar una nueva fecha comercial para la próxima jornada.
-    // No se bloquea si ya hubo una caja cerrada hoy: el empleado puede abrir
-    // una nueva jornada en el mismo día comercial (turno mañana / turno tarde).
-    const commercialDate = this.getCommercialDate();
+    // Si ya existe un Cierre de Jornada (daily_closures) para la fecha calculada, se avanza
+    // automáticamente al día siguiente — regla de negocio: post-cierre toda nueva
+    // apertura se imputa a la próxima jornada, sin importar la hora del reloj.
+    let commercialDate = this.getBusinessDate();
+
+    const dayAlreadyClosed = await this.dailyClosureRepo.findOne({
+      where: { date: commercialDate },
+    });
+    if (dayAlreadyClosed) {
+      const originalDate = commercialDate;
+      const [y, m, d] = commercialDate.split('-').map(Number);
+      const next = new Date(y, m - 1, d + 1);
+      commercialDate = [
+        next.getFullYear(),
+        String(next.getMonth() + 1).padStart(2, '0'),
+        String(next.getDate()).padStart(2, '0'),
+      ].join('-');
+      this.logger.log(
+        `Cierre de Jornada detectado para ${originalDate} — nueva jornada imputada al día siguiente: ${commercialDate}`,
+      );
+    }
 
     const session = this.sessionRepo.create({
       date: commercialDate,
@@ -160,6 +182,8 @@ export class CashRegisterService {
    */
   async getCurrentSession(date?: string): Promise<{
     session: CashSession | null;
+    cashIncome: number;
+    cashExpenseTotal: number;
     cashExpected: number;
     transferTotal: number;
     dayTotal: number;
@@ -182,10 +206,17 @@ export class CashRegisterService {
       saleTotal: string | null;
       bookingItems: { productName: string; quantity: number; unitPrice: number; total: number }[] | null;
       saleItems: { productName: string; quantity: number; unitPrice: number; total: number }[] | null;
+      expenseCategory: string | null;
     }[];
     isOpen: boolean;
     /** true cuando la sesión abierta pertenece a una jornada anterior al día comercial actual. */
     staleSession: boolean;
+    /**
+     * true cuando la jornada comercial de la sesión activa (o la fecha comercial actual
+     * si no hay sesión) ya fue cerrada formalmente vía "Cierre de Jornada".
+     * Se persiste en la tabla daily_closures para ser la fuente de verdad del backend.
+     */
+    isBusinessDayClosed: boolean;
   }> {
     let session: CashSession | null;
 
@@ -225,8 +256,15 @@ export class CashRegisterService {
     }
 
     if (!session) {
+      // Chequear si la jornada comercial actual ya fue cerrada formalmente.
+      const noSessCommercialDate = this.getBusinessDate();
+      const noSessClosureRecord = await this.dailyClosureRepo.findOne({
+        where: { date: noSessCommercialDate },
+      });
       return {
         session: null,
+        cashIncome: 0,
+        cashExpenseTotal: 0,
         cashExpected: 0,
         transferTotal: 0,
         dayTotal: 0,
@@ -234,25 +272,40 @@ export class CashRegisterService {
         transactions: [],
         isOpen: false,
         staleSession: false,
+        isBusinessDayClosed: !!noSessClosureRecord,
       };
     }
 
-    const totals = await this.dataSource.query<{ cash_expected: string; transfer_total: string }[]>(
+    const totals = await this.dataSource.query<{
+      cash_income: string;
+      cash_expense_total: string;
+      cash_expected: string;
+      transfer_total: string;
+    }[]>(
+      // Los egresos en efectivo son salidas de caja: se restan del efectivo esperado.
       `SELECT
-         COALESCE(SUM(amount_cash), 0)       AS cash_expected,
-         COALESCE(SUM(amount_transfer), 0)   AS transfer_total
+         COALESCE(SUM(amount_cash), 0)                                          AS cash_income,
+         COALESCE((SELECT SUM(amount) FROM expenses
+                   WHERE cash_session_id = $1 AND deleted_at IS NULL), 0)       AS cash_expense_total,
+         COALESCE(SUM(amount_cash), 0)
+           - COALESCE((SELECT SUM(amount) FROM expenses
+                       WHERE cash_session_id = $1 AND deleted_at IS NULL), 0)   AS cash_expected,
+         COALESCE(SUM(amount_transfer), 0)                                      AS transfer_total
        FROM transactions
        WHERE cash_session_id = $1`,
       [session.id],
     );
 
-    const cashExpected = parseFloat(totals[0]?.cash_expected ?? '0');
-    const transferTotal = parseFloat(totals[0]?.transfer_total ?? '0');
+    const cashIncome       = parseFloat(totals[0]?.cash_income        ?? '0');
+    const cashExpenseTotal = parseFloat(totals[0]?.cash_expense_total ?? '0');
+    const cashExpected     = parseFloat(totals[0]?.cash_expected      ?? '0');
+    const transferTotal    = parseFloat(totals[0]?.transfer_total     ?? '0');
 
     const transactions = await this.dataSource.query(
+      // UNION: ingresos (transactions) + egresos (expenses) en la misma lista de movimientos.
       `SELECT
          t.id,
-         t.type,
+         t.type::text,
          t.reference_id        AS "referenceId",
          t.concept,
          t.amount_cash         AS "amountCash",
@@ -291,22 +344,61 @@ export class CashRegisterService {
            FROM sale_items si
            JOIN products p ON p.id = si.product_id
            WHERE si.sale_id = t.reference_id AND t.type = 'sale'
-         ) AS "saleItems"
+         ) AS "saleItems",
+         NULL::text            AS "expenseCategory"
        FROM transactions t
        LEFT JOIN sales    s ON s.id = t.reference_id AND t.type = 'sale'
        LEFT JOIN bookings b ON b.id = t.reference_id AND t.type = 'booking'
        LEFT JOIN courts   c ON c.id = b.court_id
        LEFT JOIN users    u ON u.id = t.created_by_user_id
        WHERE t.cash_session_id = $1
-       ORDER BY t.created_at DESC`,
+
+       UNION ALL
+
+       SELECT
+         e.id,
+         'expense'::text        AS type,
+         e.id                  AS "referenceId",
+         e.description         AS concept,
+         e.amount::float       AS "amountCash",
+         0::float              AS "amountTransfer",
+         e.created_at          AS "createdAt",
+         NULL                  AS "customerName",
+         NULL                  AS "createdByFullName",
+         NULL                  AS "createdByUsername",
+         NULL                  AS "bookingClientName",
+         NULL                  AS "bookingHour",
+         NULL                  AS "bookingCourtName",
+         NULL::float           AS "bookingPriceAmount",
+         NULL::float           AS "saleTotal",
+         NULL::json            AS "bookingItems",
+         NULL::json            AS "saleItems",
+         e.category::text       AS "expenseCategory"
+       FROM expenses e
+       WHERE e.cash_session_id = $1 AND e.deleted_at IS NULL
+
+       ORDER BY "createdAt" DESC`,
       [session.id],
     );
 
-    // Una caja abierta nunca es "atrasada": opera hasta que se cierre manualmente.
-    const staleSession = false;
+    // Una sesión es "atrasada" si su fecha comercial difiere de la fecha comercial actual.
+    // Se compara session.date (asignado por getBusinessDate() al abrir) con la fecha
+    // comercial vigente ahora, ambos usando la misma regla de las 03:00 AM.
+    const currentBusinessDate = this.getBusinessDate();
+    const staleSession = session.status === CashSessionStatus.OPEN && session.date !== currentBusinessDate;
+
+    // isBusinessDayClosed: verifica si la jornada de la sesión ya fue cerrada formalmente.
+    // Siempre usamos session.date como clave de búsqueda (es inmutable desde la apertura).
+    // Para OPEN: nunca habrá un registro en daily_closures para su misma fecha.
+    // Para CLOSED: buscamos si el Cierre Z fue ejecutado para esa fecha comercial.
+    const closureRecord = await this.dailyClosureRepo.findOne({
+      where: { date: session.date },
+    });
 
     return {
       session,
+      cashIncome,
+      cashExpenseTotal,
       cashExpected,
       transferTotal,
       dayTotal: cashExpected + transferTotal,
@@ -314,6 +406,7 @@ export class CashRegisterService {
       transactions,
       isOpen: session.status === CashSessionStatus.OPEN,
       staleSession,
+      isBusinessDayClosed: !!closureRecord,
     };
   }
 
@@ -345,18 +438,30 @@ export class CashRegisterService {
       );
     }
 
-    const totals = await this.dataSource.query<{ cash_expected: string; transfer_total: string }[]>(
+    const totals = await this.dataSource.query<{
+      cash_income: string;
+      cash_expense_total: string;
+      transfer_total: string;
+    }[]>(
       `SELECT
-         COALESCE(SUM(amount_cash), 0)     AS cash_expected,
-         COALESCE(SUM(amount_transfer), 0) AS transfer_total
+         COALESCE(SUM(amount_cash), 0)                                        AS cash_income,
+         COALESCE((SELECT SUM(amount) FROM expenses
+                   WHERE cash_session_id = $1 AND deleted_at IS NULL), 0)     AS cash_expense_total,
+         COALESCE(SUM(amount_transfer), 0)                                    AS transfer_total
        FROM transactions
        WHERE cash_session_id = $1`,
       [session.id],
     );
 
-    const cashExpected = parseFloat(totals[0]?.cash_expected ?? '0');
-    const transferTotal = parseFloat(totals[0]?.transfer_total ?? '0');
-    const difference = dto.cashCounted - cashExpected;
+    const cashIncome       = parseFloat(totals[0]?.cash_income        ?? '0');
+    const cashExpenseTotal = parseFloat(totals[0]?.cash_expense_total ?? '0');
+    const transferTotal    = parseFloat(totals[0]?.transfer_total     ?? '0');
+    const initialBalance   = Number(session.initialBalance) || 0;
+    // Mismo piso que la UI: fondo + ingresos en efectivo − egresos, mínimo $0.
+    // Sin este tope, cuando los egresos > ingresos el esperado se vuelve negativo
+    // y la diferencia resulta en un "sobrante" absurdo (ej. +360.000).
+    const cashExpected     = Math.max(0, initialBalance + cashIncome - cashExpenseTotal);
+    const difference       = dto.cashCounted - cashExpected;
 
     session.status = CashSessionStatus.CLOSED;
     session.closedByUserId = user.id;
@@ -369,6 +474,7 @@ export class CashRegisterService {
 
     this.logger.log(
       `CIERRE Z — jornada ${session.date} por ${user.username}. ` +
+        `Fondo: $${initialBalance} | Ingresos: $${cashIncome} | Egresos: $${cashExpenseTotal} | ` +
         `Esperado: $${cashExpected} | Contado: $${dto.cashCounted} | ` +
         `Diferencia: ${difference >= 0 ? '+' : ''}$${difference}`,
     );
@@ -376,6 +482,21 @@ export class CashRegisterService {
     const balances = difference === 0 ? 'exact' : difference > 0 ? 'surplus' : 'shortage';
 
     return { session, cashExpected, transferTotal, dayTotal: cashExpected + transferTotal, difference, balances };
+  }
+
+  /**
+   * Devuelve el `cashCounted` del último turno cerrado, para pre-cargar el
+   * "Fondo Inicial" del próximo turno (arrastre de fondo).
+   * Retorna `null` si nunca hubo ningún turno cerrado.
+   */
+  async getLastClosedSuggestion(): Promise<{ cashCounted: number | null }> {
+    const session = await this.sessionRepo.findOne({
+      where: { status: CashSessionStatus.CLOSED },
+      order: { closedAt: 'DESC' } as any,
+    });
+    return {
+      cashCounted: session?.cashCounted != null ? Number(session.cashCounted) : null,
+    };
   }
 
   // ─── Cierre de Jornada Completa ─────────────────────────────────────────
@@ -411,6 +532,17 @@ export class CashRegisterService {
       );
     }
 
+    // Bloquear doble Cierre de Jornada: verificar si ya existe un registro para esta fecha.
+    const commercialDateStr = this.getBusinessDate();
+    const existingClosure = await this.dailyClosureRepo.findOne({
+      where: { date: commercialDateStr },
+    });
+    if (existingClosure) {
+      throw new BadRequestException(
+        `La jornada comercial del ${commercialDateStr} ya fue cerrada. No se puede volver a cerrar.`,
+      );
+    }
+
     // Consolidar TODOS los turnos cerrados dentro de la ventana del día comercial activo
     // (desde las 02:00 AM Argentina). Se filtra por closedAt para incluir correctamente
     // los turnos trasnoche cuyo session.date es del día anterior al cierre físico.
@@ -426,10 +558,12 @@ export class CashRegisterService {
         opened_at: Date;
         closed_at: Date | null;
         status: string;
+        initial_balance: string;
         cash_counted: string | null;
         difference: string | null;
         opened_by_name: string | null;
-        cash_expected: string;
+        cash_income: string;
+        cash_expense_total: string;
         transfer_total: string;
       }[]
     >(
@@ -439,11 +573,14 @@ export class CashRegisterService {
          cs.opened_at,
          cs.closed_at,
          cs.status,
+         cs.initial_balance,
          cs.cash_counted,
          cs.difference,
-         COALESCE(u.full_name, u.username, 'Desconocido') AS opened_by_name,
-         COALESCE(SUM(t.amount_cash),     0) AS cash_expected,
-         COALESCE(SUM(t.amount_transfer), 0) AS transfer_total
+         COALESCE(u.full_name, u.username, 'Desconocido')                    AS opened_by_name,
+         COALESCE(SUM(t.amount_cash), 0)                                     AS cash_income,
+         COALESCE((SELECT SUM(e.amount) FROM expenses e
+                   WHERE e.cash_session_id = cs.id AND e.deleted_at IS NULL), 0) AS cash_expense_total,
+         COALESCE(SUM(t.amount_transfer), 0)                                 AS transfer_total
        FROM cash_sessions cs
        LEFT JOIN users u        ON u.id  = cs.opened_by_user_id
        LEFT JOIN transactions t ON t.cash_session_id = cs.id
@@ -460,7 +597,10 @@ export class CashRegisterService {
     }
 
     const sessions = rows.map((row) => {
-      const cashExpected = parseFloat(row.cash_expected);
+      const ib           = Number(row.initial_balance) || 0;
+      const cashIncome   = parseFloat(row.cash_income);
+      const cashExpenses = parseFloat(row.cash_expense_total);
+      const cashExpected = Math.max(0, ib + cashIncome - cashExpenses);
       const transferTotal = parseFloat(row.transfer_total);
       return {
         sessionId: row.id,
@@ -472,7 +612,11 @@ export class CashRegisterService {
         transferTotal,
         dayTotal: cashExpected + transferTotal,
         cashCounted: row.cash_counted != null ? parseFloat(row.cash_counted) : null,
-        difference: row.difference != null ? parseFloat(row.difference) : null,
+        // Recalcular la diferencia con la fórmula corregida (no leer del DB,
+        // que puede tener valores erróneos de la lógica anterior sin piso en 0).
+        difference: row.cash_counted != null
+          ? parseFloat(row.cash_counted) - cashExpected
+          : null,
       };
     });
 
@@ -484,6 +628,11 @@ export class CashRegisterService {
 
     // Usar la fecha del primer turno (el más antiguo de la ventana) como fecha de jornada.
     const date = rows[0].date;
+
+    // Persistir el registro de Cierre de Jornada para evitar dobles cierres.
+    const closureRecord = this.dailyClosureRepo.create({ date: commercialDateStr });
+    await this.dailyClosureRepo.save(closureRecord);
+    this.logger.log(`Cierre de Jornada registrado para la fecha comercial: ${commercialDateStr}`);
 
     return { date, totalExpected, totalCounted, sessions };
   }
@@ -718,11 +867,12 @@ export class CashRegisterService {
         opened_at: Date;
         closed_at: Date | null;
         status: string;
+        initial_balance: string;
         cash_counted: string | null;
-        difference: string | null;
-        opened_by_name: string | null;
-        cash_expected: string;
+        cash_income: string;
+        cash_expense_total: string;
         transfer_total: string;
+        opened_by_name: string | null;
       }[]
     >(
       `SELECT
@@ -730,11 +880,17 @@ export class CashRegisterService {
          cs.opened_at,
          cs.closed_at,
          cs.status,
+         cs.initial_balance,
          cs.cash_counted,
-         cs.difference,
-         COALESCE(u.full_name, u.username, 'Desconocido') AS opened_by_name,
-         COALESCE(SUM(t.amount_cash),     0) AS cash_expected,
-         COALESCE(SUM(t.amount_transfer), 0) AS transfer_total
+         COALESCE(u.full_name, u.username, 'Desconocido')    AS opened_by_name,
+         COALESCE(SUM(t.amount_cash),     0)                 AS cash_income,
+         COALESCE(SUM(t.amount_transfer), 0)                 AS transfer_total,
+         COALESCE((
+           SELECT SUM(e.amount)
+           FROM expenses e
+           WHERE e.cash_session_id = cs.id
+             AND e.deleted_at IS NULL
+         ), 0)                                               AS cash_expense_total
        FROM cash_sessions cs
        LEFT JOIN users u        ON u.id  = cs.opened_by_user_id
        LEFT JOIN transactions t ON t.cash_session_id = cs.id
@@ -745,8 +901,16 @@ export class CashRegisterService {
     );
 
     const sessions = rows.map((row) => {
-      const cashExpected = parseFloat(row.cash_expected);
-      const transferTotal = parseFloat(row.transfer_total);
+      // Recalcular cashExpected con el tope en $0 para blindar diferencias absurdas,
+      // incluso si el valor guardado en DB fuera incorrecto (datos históricos con bug).
+      const ib              = Number(row.initial_balance) || 0;
+      const cashIncome      = parseFloat(row.cash_income       ?? '0');
+      const cashExpenses    = parseFloat(row.cash_expense_total ?? '0');
+      const cashExpected    = Math.max(0, ib + cashIncome - cashExpenses);
+      const transferTotal   = parseFloat(row.transfer_total    ?? '0');
+      const cashCounted     = row.cash_counted != null ? parseFloat(row.cash_counted) : null;
+      // Diferencia siempre calculada en tiempo real — nunca leída de la BD.
+      const difference      = cashCounted !== null ? cashCounted - cashExpected : null;
       return {
         sessionId: row.id,
         openedByName: row.opened_by_name ?? 'Desconocido',
@@ -756,8 +920,8 @@ export class CashRegisterService {
         cashExpected,
         transferTotal,
         dayTotal: cashExpected + transferTotal,
-        cashCounted: row.cash_counted != null ? parseFloat(row.cash_counted) : null,
-        difference: row.difference != null ? parseFloat(row.difference) : null,
+        cashCounted,
+        difference,
       };
     });
 
@@ -818,16 +982,24 @@ export class CashRegisterService {
     }
 
     const s = sessionRows[0];
-    const cashExpected = await this.dataSource.query<{ cash: string; transfer: string }[]>(
+    const cashExpected = await this.dataSource.query<{
+      cash_income: string;
+      transfer: string;
+      cash_expenses: string;
+    }[]>(
       `SELECT
-         COALESCE(SUM(amount_cash),     0) AS cash,
-         COALESCE(SUM(amount_transfer), 0) AS transfer
-       FROM transactions WHERE cash_session_id = $1`,
+         (SELECT COALESCE(SUM(amount_cash),     0) FROM transactions WHERE cash_session_id = $1) AS cash_income,
+         (SELECT COALESCE(SUM(amount_transfer), 0) FROM transactions WHERE cash_session_id = $1) AS transfer,
+         (SELECT COALESCE(SUM(amount),          0) FROM expenses    WHERE cash_session_id = $1 AND deleted_at IS NULL) AS cash_expenses`,
       [sessionId],
     );
-    const efectivo = parseFloat(cashExpected[0]?.cash ?? '0');
+    const cashIncome   = parseFloat(cashExpected[0]?.cash_income   ?? '0');
+    const cashExpenses = parseFloat(cashExpected[0]?.cash_expenses  ?? '0');
     const transferencia = parseFloat(cashExpected[0]?.transfer ?? '0');
-    const totalSistema = efectivo + transferencia;
+    const initialBal   = parseFloat(s.initial_balance ?? '0');
+    // Espejo exacto de la fórmula de la UI: fondo + ingresos - egresos (≥ 0)
+    const efectivoEsperado = Math.max(0, initialBal + cashIncome - cashExpenses);
+    const totalSistema = efectivoEsperado + transferencia;
     const cashCounted = s.cash_counted != null ? parseFloat(s.cash_counted) : null;
     const difference = s.difference != null ? parseFloat(s.difference) : null;
 
@@ -844,7 +1016,7 @@ export class CashRegisterService {
     >(
       `SELECT
          t.created_at,
-         t.type,
+         t.type::text AS type,
          t.concept,
          t.amount_cash,
          t.amount_transfer,
@@ -854,7 +1026,21 @@ export class CashRegisterService {
        LEFT JOIN users u ON u.id = t.created_by_user_id
        LEFT JOIN sales s ON s.id = t.reference_id AND t.type = 'sale'
        WHERE t.cash_session_id = $1
-       ORDER BY t.created_at ASC`,
+
+       UNION ALL
+
+       SELECT
+         e.created_at,
+         'expense' AS type,
+         e.description AS concept,
+         e.amount AS amount_cash,
+         0 AS amount_transfer,
+         NULL AS customer_name,
+         NULL AS created_by_name
+       FROM expenses e
+       WHERE e.cash_session_id = $1 AND e.deleted_at IS NULL
+
+       ORDER BY created_at ASC`,
       [sessionId],
     );
 
@@ -904,10 +1090,12 @@ export class CashRegisterService {
     wsR.addRow([]);
 
     addSection('RESUMEN FINANCIERO');
-    addRow('Fondo inicial (cambio)', `$ ${fmtNum(parseFloat(s.initial_balance ?? '0'))}`);
-    addRow('Efectivo generado (sistema)', `$ ${fmtNum(efectivo)}`);
-    addRow('Transferencias', `$ ${fmtNum(transferencia)}`);
-    addRow('Total sistema', `$ ${fmtNum(totalSistema)}`);
+    addRow('Fondo inicial (cambio)',          `$ ${fmtNum(initialBal)}`);
+    addRow('+ Ingresos en Efectivo',          `$ ${fmtNum(cashIncome)}`);
+    addRow('- Egresos en Efectivo (gastos)',  `$ ${fmtNum(cashExpenses)}`);
+    addRow('= Efectivo esperado (sistema)',   `$ ${fmtNum(efectivoEsperado)}`);
+    addRow('Transferencias recibidas',        `$ ${fmtNum(transferencia)}`);
+    addRow('Total sistema',                   `$ ${fmtNum(totalSistema)}`);
     wsR.addRow([]);
 
     addSection('ARQUEO FÍSICO');
@@ -973,7 +1161,7 @@ export class CashRegisterService {
       const transfer = parseFloat(tx.amount_transfer);
       const row = wsT.addRow({
         hora: new Date(tx.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }),
-        tipo: tx.type === 'booking' ? 'Turno' : 'Venta',
+        tipo: tx.type === 'booking' ? 'Turno' : tx.type === 'expense' ? 'Egreso' : 'Venta',
         desc: tx.concept,
         cliente: tx.customer_name ?? '—',
         cajero: tx.created_by_name ?? '—',
@@ -1008,7 +1196,7 @@ export class CashRegisterService {
         desc: 'TOTAL',
         cliente: '',
         cajero: '',
-        cash: efectivo,
+        cash: efectivoEsperado,
         transfer: transferencia,
         total: totalSistema,
       });
@@ -1044,7 +1232,8 @@ export class CashRegisterService {
         notes: string | null;
         opened_by_name: string;
         closed_by_name: string | null;
-        cash_expected: string;
+        cash_income: string;
+        cash_expense_total: string;
         transfer_total: string;
       }[]
     >(
@@ -1059,8 +1248,9 @@ export class CashRegisterService {
          cs.notes,
          COALESCE(ub.full_name, ub.username, 'Desconocido') AS opened_by_name,
          COALESCE(uc.full_name, uc.username)                 AS closed_by_name,
-         COALESCE(SUM(t.amount_cash),     0)                 AS cash_expected,
-         COALESCE(SUM(t.amount_transfer), 0)                 AS transfer_total
+         COALESCE(SUM(CASE WHEN t.type != 'expense' THEN t.amount_cash     ELSE 0 END), 0) AS cash_income,
+         COALESCE(SUM(CASE WHEN t.type  = 'expense' THEN t.amount_cash     ELSE 0 END), 0) AS cash_expense_total,
+         COALESCE(SUM(CASE WHEN t.type != 'expense' THEN t.amount_transfer ELSE 0 END), 0) AS transfer_total
        FROM cash_sessions cs
        LEFT JOIN users ub       ON ub.id = cs.opened_by_user_id
        LEFT JOIN users uc       ON uc.id = cs.closed_by_user_id
@@ -1080,7 +1270,14 @@ export class CashRegisterService {
     const fmtNum = (n: number) =>
       n.toLocaleString('es-AR', { minimumFractionDigits: 2 });
 
-    const totalEfectivo = rows.reduce((s, r) => s + parseFloat(r.cash_expected), 0);
+    const totalCashIncome   = rows.reduce((s, r) => s + parseFloat(r.cash_income),        0);
+    const totalCashExpenses = rows.reduce((s, r) => s + parseFloat(r.cash_expense_total),  0);
+    const totalInitialBal   = rows.reduce((s, r) => s + parseFloat(r.initial_balance ?? '0'), 0);
+    // Efectivo esperado consolidado: suma de (fondo + ingresos - egresos) por turno, piso 0
+    const totalEfectivo = rows.reduce(
+      (s, r) => s + Math.max(0, parseFloat(r.initial_balance ?? '0') + parseFloat(r.cash_income) - parseFloat(r.cash_expense_total)),
+      0,
+    );
     const totalTransfer = rows.reduce((s, r) => s + parseFloat(r.transfer_total), 0);
     const totalDia = totalEfectivo + totalTransfer;
     const allClosed = rows.every((r) => r.status === 'closed');
@@ -1121,11 +1318,14 @@ export class CashRegisterService {
     };
 
     addSection('TOTALES DE LA JORNADA');
-    addRow('Fecha comercial', date);
-    addRow('Cantidad de turnos', String(rows.length));
-    addRow('Efectivo total (sistema)', `$ ${fmtNum(totalEfectivo)}`);
-    addRow('Transferencias totales', `$ ${fmtNum(totalTransfer)}`);
-    addRow('Recaudación total del día', `$ ${fmtNum(totalDia)}`);
+    addRow('Fecha comercial',                  date);
+    addRow('Cantidad de turnos',               String(rows.length));
+    addRow('Fondo inicial total (cambio)',      `$ ${fmtNum(totalInitialBal)}`);
+    addRow('+ Ingresos en Efectivo',           `$ ${fmtNum(totalCashIncome)}`);
+    addRow('- Egresos en Efectivo (gastos)',   `$ ${fmtNum(totalCashExpenses)}`);
+    addRow('= Efectivo esperado (sistema)',    `$ ${fmtNum(totalEfectivo)}`);
+    addRow('Transferencias totales',           `$ ${fmtNum(totalTransfer)}`);
+    addRow('Recaudación total del día',        `$ ${fmtNum(totalDia)}`);
     addRow(
       'Arqueo físico total',
       totalContado != null ? `$ ${fmtNum(totalContado)}` : '(hay turnos aún abiertos)',
@@ -1134,8 +1334,11 @@ export class CashRegisterService {
 
     addSection('DETALLE POR TURNO');
     rows.forEach((r, i) => {
-      const ef = parseFloat(r.cash_expected);
-      const tr = parseFloat(r.transfer_total);
+      const ib  = parseFloat(r.initial_balance ?? '0');
+      const ci  = parseFloat(r.cash_income);
+      const ce  = parseFloat(r.cash_expense_total);
+      const ef  = Math.max(0, ib + ci - ce);
+      const tr  = parseFloat(r.transfer_total);
       wsR.addRow([]);
       const shiftTitle = wsR.addRow([`Turno ${i + 1} — ${r.opened_by_name}`]);
       shiftTitle.font = { bold: true, italic: true };
@@ -1145,9 +1348,12 @@ export class CashRegisterService {
       addRow('Apertura', fmtDate(r.opened_at));
       addRow('Cierre', fmtDate(r.closed_at));
       addRow('Estado', r.status === 'open' ? 'Abierto' : 'Cerrado');
-      addRow('Efectivo (sistema)', `$ ${fmtNum(ef)}`);
-      addRow('Transferencias', `$ ${fmtNum(tr)}`);
-      addRow('Total turno', `$ ${fmtNum(ef + tr)}`);
+      addRow('Fondo inicial (cambio)',         `$ ${fmtNum(ib)}`);
+      addRow('+ Ingresos en Efectivo',         `$ ${fmtNum(ci)}`);
+      addRow('- Egresos en Efectivo (gastos)', `$ ${fmtNum(ce)}`);
+      addRow('= Efectivo esperado (sistema)',  `$ ${fmtNum(ef)}`);
+      addRow('Transferencias',                 `$ ${fmtNum(tr)}`);
+      addRow('Total turno',                    `$ ${fmtNum(ef + tr)}`);
       if (r.cash_counted != null) {
         addRow('Efectivo contado', `$ ${fmtNum(parseFloat(r.cash_counted))}`);
         const diff = parseFloat(r.difference ?? '0');
@@ -1175,17 +1381,19 @@ export class CashRegisterService {
     // ── Hoja 2: Desglose por Turno ──
     const wsS = wb.addWorksheet('Desglose por Turno');
     wsS.columns = [
-      { header: 'Turno #', key: 'num', width: 9 },
-      { header: 'Abierto por', key: 'abiertoPor', width: 26 },
-      { header: 'Cerrado por', key: 'cerradoPor', width: 26 },
-      { header: 'Apertura', key: 'apertura', width: 20 },
-      { header: 'Cierre', key: 'cierre', width: 20 },
-      { header: 'Estado', key: 'estado', width: 12 },
-      { header: 'Efectivo ($)', key: 'cash', width: 16 },
-      { header: 'Transferencia ($)', key: 'transfer', width: 18 },
-      { header: 'Total Turno ($)', key: 'total', width: 16 },
-      { header: 'Contado ($)', key: 'contado', width: 14 },
-      { header: 'Diferencia ($)', key: 'diff', width: 15 },
+      { header: 'Turno #',            key: 'num',        width: 9  },
+      { header: 'Abierto por',        key: 'abiertoPor', width: 26 },
+      { header: 'Cerrado por',        key: 'cerradoPor', width: 26 },
+      { header: 'Apertura',           key: 'apertura',   width: 20 },
+      { header: 'Cierre',             key: 'cierre',     width: 20 },
+      { header: 'Estado',             key: 'estado',     width: 12 },
+      { header: 'Ingresos Ef. ($)',   key: 'cashIn',     width: 18 },
+      { header: 'Egresos Ef. ($)',    key: 'cashOut',    width: 17 },
+      { header: 'Ef. Esperado ($)',   key: 'cash',       width: 18 },
+      { header: 'Transferencia ($)',  key: 'transfer',   width: 18 },
+      { header: 'Total Turno ($)',    key: 'total',      width: 16 },
+      { header: 'Contado ($)',        key: 'contado',    width: 14 },
+      { header: 'Diferencia ($)',     key: 'diff',       width: 15 },
     ];
 
     const headerRow = wsS.getRow(1);
@@ -1197,10 +1405,13 @@ export class CashRegisterService {
     });
 
     rows.forEach((r, i) => {
-      const ef = parseFloat(r.cash_expected);
-      const tr = parseFloat(r.transfer_total);
+      const ib     = parseFloat(r.initial_balance ?? '0');
+      const ci     = parseFloat(r.cash_income);
+      const ce     = parseFloat(r.cash_expense_total);
+      const ef     = Math.max(0, ib + ci - ce);
+      const tr     = parseFloat(r.transfer_total);
       const contado = r.cash_counted != null ? parseFloat(r.cash_counted) : null;
-      const diff = r.difference != null ? parseFloat(r.difference) : null;
+      const diff   = r.difference != null ? parseFloat(r.difference) : null;
 
       const row = wsS.addRow({
         num: i + 1,
@@ -1209,18 +1420,22 @@ export class CashRegisterService {
         apertura: fmtDate(r.opened_at),
         cierre: fmtDate(r.closed_at),
         estado: r.status === 'open' ? 'Abierto' : 'Cerrado',
-        cash: ef,
+        cashIn:   ci,
+        cashOut:  ce,
+        cash:     ef,
         transfer: tr,
-        total: ef + tr,
-        contado: contado ?? '—',
-        diff: diff != null ? diff : '—',
+        total:    ef + tr,
+        contado:  contado ?? '—',
+        diff:     diff != null ? diff : '—',
       });
 
-      ['cash', 'transfer', 'total'].forEach((key) => {
+      ['cashIn', 'cashOut', 'cash', 'transfer', 'total'].forEach((key) => {
         const cell = row.getCell(key);
         cell.numFmt = '"$"#,##0.00';
         cell.alignment = { horizontal: 'right' };
       });
+      // Egresos en rojo para destacarlos
+      row.getCell('cashOut').font = { color: { argb: 'FFCC0000' } };
 
       if (contado != null) {
         row.getCell('contado').numFmt = '"$"#,##0.00';
@@ -1246,20 +1461,22 @@ export class CashRegisterService {
     // Fila de totales
     wsS.addRow([]);
     const totRow = wsS.addRow({
-      num: '',
+      num:       '',
       abiertoPor: 'TOTAL',
       cerradoPor: '',
-      apertura: '',
-      cierre: '',
-      estado: '',
-      cash: totalEfectivo,
-      transfer: totalTransfer,
-      total: totalDia,
-      contado: totalContado ?? '—',
-      diff: '',
+      apertura:  '',
+      cierre:    '',
+      estado:    '',
+      cashIn:    totalCashIncome,
+      cashOut:   totalCashExpenses,
+      cash:      totalEfectivo,
+      transfer:  totalTransfer,
+      total:     totalDia,
+      contado:   totalContado ?? '—',
+      diff:      '',
     });
     totRow.font = { bold: true };
-    ['cash', 'transfer', 'total'].forEach((key) => {
+    ['cashIn', 'cashOut', 'cash', 'transfer', 'total'].forEach((key) => {
       const cell = totRow.getCell(key);
       cell.numFmt = '"$"#,##0.00';
       cell.alignment = { horizontal: 'right' };
@@ -1289,7 +1506,7 @@ export class CashRegisterService {
    */
   private getCommercialDayStart(): Date {
     const TZ = 'America/Argentina/Buenos_Aires';
-    const CUTOFF_HOUR = 2;
+    const CUTOFF_HOUR = 3;
     const ARG_UTC_OFFSET = 3; // Argentina es UTC-3, sin DST
 
     const now = new Date();
@@ -1307,44 +1524,45 @@ export class CashRegisterService {
     const [year, month, day] = argDateStr.split('-').map(Number);
 
     if (currentHour < CUTOFF_HOUR) {
-      // Antes del cutoff: el día comercial comenzó AYER a las 02:00 AM Argentina
+      // Antes del cutoff: el día comercial comenzó AYER a las 03:00 AM Argentina
       return new Date(
         Date.UTC(year, month - 1, day - 1, CUTOFF_HOUR + ARG_UTC_OFFSET, 0, 0),
       );
     }
-    // Después del cutoff: el día comercial comenzó HOY a las 02:00 AM Argentina
+    // Después del cutoff: el día comercial comenzó HOY a las 03:00 AM Argentina
     return new Date(
       Date.UTC(year, month - 1, day, CUTOFF_HOUR + ARG_UTC_OFFSET, 0, 0),
     );
   }
 
   /**
-   * Retorna la fecha comercial vigente en zona horaria Argentina (YYYY-MM-DD).
-   * Implementa el "Cutoff Time": horas entre 00:00 y 01:59 AM pertenecen al día anterior.
-   * El complejo cierra a la 01:00 AM y se da 1 hora de margen administrativo.
-   * Ej: Sábado 01:30 AM → jornada del Viernes. Sábado 02:00 AM → jornada del Sábado.
+   * Retorna la fecha comercial vigente para la fecha/hora dada (default: ahora),
+   * en zona horaria Argentina (YYYY-MM-DD).
    *
-   * REGLA CRÍTICA: Esta función SOLO se usa al ABRIR una nueva sesión.
-   * Una sesión ya OPEN conserva su fecha original de forma inmutable.
+   * Regla de negocio: el establecimiento cierra entre la 01:00 AM y las 02:00 AM.
+   * Por eso, horas entre las 00:00 y las 02:59 AM pertenecen al día comercial ANTERIOR.
+   * Ej: Sábado 01:30 AM → jornada del Viernes. Sábado 03:00 AM → jornada del Sábado.
+   *
+   * REGLA CRÍTICA: Esta función se usa para asignar la fecha a una nueva sesión y para
+   * comparar fechas de cierre. Una sesión ya OPEN conserva su `date` original de forma inmutable.
    */
-  getCommercialDate(): string {
-    const CUTOFF_HOUR = 2;
+  getBusinessDate(date: Date = new Date()): string {
+    const CUTOFF_HOUR = 3;
     const TZ = 'America/Argentina/Buenos_Aires';
 
-    const now = new Date();
     const hourParts = new Intl.DateTimeFormat('en-US', {
       timeZone: TZ,
       hour: 'numeric',
       hour12: false,
-    }).formatToParts(now);
+    }).formatToParts(date);
     const currentHour = parseInt(hourParts.find((p) => p.type === 'hour')?.value ?? '12', 10);
 
     if (currentHour < CUTOFF_HOUR) {
-      const yesterday = new Date(now);
+      const yesterday = new Date(date);
       yesterday.setDate(yesterday.getDate() - 1);
       return yesterday.toLocaleDateString('en-CA', { timeZone: TZ });
     }
 
-    return now.toLocaleDateString('en-CA', { timeZone: TZ });
+    return date.toLocaleDateString('en-CA', { timeZone: TZ });
   }
 }

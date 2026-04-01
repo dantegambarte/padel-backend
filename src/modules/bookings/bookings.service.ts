@@ -16,6 +16,7 @@ import { BookingPayment } from './entities/booking-payment.entity';
 import { Product } from '../products/entities/product.entity';
 import { ProductCategory } from '../products/entities/product-category.entity';
 import { Court } from '../courts/entities/court.entity';
+import { PricingShift } from '../pricing-shifts/entities/pricing-shift.entity';
 import { User, UserRole } from '../users/entities/user.entity';
 import { CashRegisterService } from '../cash-register/cash-register.service';
 import { TransactionType } from '../cash-register/entities/transaction.entity';
@@ -84,6 +85,9 @@ export class BookingsService {
     // If sourceId is provided, merge data from the source booking (duplicate mode).
     if (dto.sourceId) {
       const source = await this.findOne(dto.sourceId);
+      if (source.status === BookingStatus.COMPLETED) {
+        throw new BadRequestException('No se permite duplicar un turno que ya ha finalizado.');
+      }
       if (!dto.clientName)                dto.clientName      = source.clientName;
       if (!dto.priceType)                 dto.priceType       = source.priceType as PriceType;
       if (dto.durationMinutes === undefined) dto.durationMinutes = source.durationMinutes;
@@ -139,15 +143,14 @@ export class BookingsService {
       }
 
       const priceType = dto.priceType ?? PriceType.STANDARD;
-      const duration = dto.durationMinutes ?? 60;
-      let priceAmount: number;
-      switch (duration) {
-        case 30:  priceAmount = Number(court.price30);  break;
-        case 60:  priceAmount = Number(court.price60);  break;
-        case 90:  priceAmount = Number(court.price90);  break;
-        case 120: priceAmount = Number(court.price120); break;
-        default:  priceAmount = Number(court.price60);
-      }
+      const duration  = dto.durationMinutes ?? 60;
+      const priceAmount = await this.calculateDynamicPrice(
+        dto.date,
+        dto.hour,
+        priceType === PriceType.PROFESSOR,
+        duration,
+        queryRunner,
+      );
 
       const bookingItems = await this.processItems(dto.items ?? [], queryRunner);
 
@@ -260,12 +263,17 @@ export class BookingsService {
       // — RESCHEDULE (move) —
       let rescheduleFields: { courtId?: string; date?: string; hour?: string } | null = null;
       if (dto.courtId !== undefined || dto.date !== undefined || dto.hour !== undefined) {
+        if (booking.status === BookingStatus.COMPLETED) {
+          throw new BadRequestException(
+            'No se puede mover o modificar la fecha de un turno que ya ha finalizado.',
+          );
+        }
         if (
-          [BookingStatus.COMPLETED, BookingStatus.CANCELLED].includes(booking.status) &&
+          booking.status === BookingStatus.CANCELLED &&
           user.role !== UserRole.ADMIN
         ) {
           throw new ForbiddenException(
-            'Solo los administradores pueden mover turnos completados o cancelados.',
+            'Solo los administradores pueden mover turnos cancelados.',
           );
         }
 
@@ -307,7 +315,20 @@ export class BookingsService {
           );
         }
 
-        rescheduleFields = { courtId: targetCourtId, date: targetDate, hour: targetHour };
+        // Recalcular precio dinámico para la nueva fecha/hora/cancha.
+        const newPriceAmount = await this.calculateDynamicPrice(
+          targetDate,
+          targetHour,
+          booking.priceType === PriceType.PROFESSOR,
+          booking.durationMinutes,
+          queryRunner,
+        );
+        rescheduleFields = {
+          courtId: targetCourtId,
+          date: targetDate,
+          hour: targetHour,
+          priceAmount: newPriceAmount,
+        } as any;
       }
 
       let itemsTotal = 0;
@@ -632,6 +653,73 @@ export class BookingsService {
           `Transiciones válidas desde ${current}: [${VALID_TRANSITIONS[current].join(', ')}].`,
       );
     }
+  }
+
+  /**
+  /**
+   * Motor de Precios Dinámico.
+   *
+   * Busca la franja horaria activa que coincida con el día de la semana
+   * y la hora del turno. Si encuentra una, usa su precio. Si no hay
+   * ninguna configurada devuelve 0 (el operador deberá ajustar el precio).
+   *
+   * @param date              - Fecha del turno (YYYY-MM-DD).
+   * @param hour              - Hora del turno (HH:mm).
+   * @param isTeacherIncluded - true cuando priceType === PROFESSOR.
+   * @param duration          - Duración en minutos.
+   * @param queryRunner       - QueryRunner activo de la transacción.
+   */
+  private async calculateDynamicPrice(
+    date: string,
+    hour: string,
+    isTeacherIncluded: boolean,
+    duration: number,
+    queryRunner: any,
+  ): Promise<number> {
+    // Derivar día de la semana en hora local (sin depender de TZ del servidor).
+    const [year, month, day] = date.split('-').map(Number);
+    const dayOfWeek = new Date(year, month - 1, day).getDay(); // 0=Dom … 6=Sáb
+
+    const [h, m] = hour.split(':').map(Number);
+    const bookingMin = h * 60 + m;
+
+    const shifts: PricingShift[] = await queryRunner.manager.find(PricingShift, {
+      where: { isActive: true },
+    });
+
+    const matching = shifts.find((s) => {
+      const days = (s.daysOfWeek as any[]).map(Number);
+      if (!days.includes(dayOfWeek)) return false;
+      const [sh, sm] = s.startTime.split(':').map(Number);
+      const [eh, em] = s.endTime.split(':').map(Number);
+      const startMin = sh * 60 + sm;
+      const endMin   = eh * 60 + em;
+      // Franja normal (mismo día) vs. franja que cruza medianoche
+      return startMin <= endMin
+        ? bookingMin >= startMin && bookingMin < endMin
+        : bookingMin >= startMin || bookingMin < endMin;
+    });
+
+    if (matching) {
+      let base: number;
+      switch (duration) {
+        case 30:  base = Number(matching.price30min);  break;
+        case 90:  base = Number(matching.price90min);  break;
+        case 120: base = Number(matching.price120min); break;
+        default:  base = Number(matching.price60min);  break;
+      }
+      const extra = isTeacherIncluded ? Number(matching.teacherPricePerHour) * (duration / 60) : 0;
+      this.logger.log(
+        `Precio dinámico: franja "${matching.name}" → $${base}${isTeacherIncluded ? ` + $${extra} (profesor)` : ''}`,
+      );
+      return base + extra;
+    }
+
+    // Sin franja configurada: el precio es 0 (el operador deberá ajustarlo manualmente).
+    this.logger.warn(
+      `Sin franja horaria para ${date} ${hour}hs (día ${dayOfWeek}). Precio = 0.`,
+    );
+    return 0;
   }
 
   /** Convierte errores de base de datos en excepciones HTTP apropiadas. */

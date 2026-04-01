@@ -61,4 +61,14 @@ export class CreateProductDto {
   @IsOptional()
   @IsBoolean()
   isFeatured?: boolean;
+
+  @ApiPropertyOptional({
+    example: 'water_bottle',
+    description: 'Nombre del icono de Material Symbols Rounded para identificación visual.',
+    default: 'inventory_2',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  icon?: string;
 }

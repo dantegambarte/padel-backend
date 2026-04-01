@@ -68,6 +68,13 @@ export class Product {
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean;
 
+  /**
+   * Nombre del icono de Material Symbols Rounded.
+   * Se renderiza dinámicamente en el frontend: <span class="material-symbols-rounded">{{ icon }}</span>
+   */
+  @Column({ type: 'varchar', length: 60, default: 'inventory_2' })
+  icon: string;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

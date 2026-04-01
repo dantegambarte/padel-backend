@@ -42,13 +42,14 @@ export class ReportsService {
     return map[groupBy];
   }
 
-  /** Retorna ingresos agrupados por período, desglosados en turnos y ventas POS. */
+  /** Retorna ingresos agrupados por período, desglosados en turnos y ventas POS, con egresos. */
   async getRevenue(dto: ReportQueryDto): Promise<
     {
       period: string;
       bookings: number;
       sales: number;
       total: number;
+      expenses: number;
     }[]
   > {
     const { from, to } = this.resolveDateRange(dto);
@@ -59,15 +60,34 @@ export class ReportsService {
         period: string;
         bookings: string;
         sales: string;
+        expenses: string;
       }[]
     >(
-      `SELECT
-         DATE_TRUNC($1, (created_at AT TIME ZONE $2))::date::text AS period,
-         COALESCE(SUM(CASE WHEN type = 'booking' THEN amount_cash + amount_transfer ELSE 0 END), 0) AS bookings,
-         COALESCE(SUM(CASE WHEN type = 'sale'    THEN amount_cash + amount_transfer ELSE 0 END), 0) AS sales
-       FROM transactions
-       WHERE (created_at AT TIME ZONE $2)::date BETWEEN $3::date AND $4::date
-       GROUP BY 1
+      `WITH income AS (
+         SELECT
+           DATE_TRUNC($1, (created_at AT TIME ZONE $2))::date::text AS period,
+           COALESCE(SUM(CASE WHEN type = 'booking' THEN amount_cash + amount_transfer ELSE 0 END), 0) AS bookings,
+           COALESCE(SUM(CASE WHEN type = 'sale'    THEN amount_cash + amount_transfer ELSE 0 END), 0) AS sales
+         FROM transactions
+         WHERE (created_at AT TIME ZONE $2)::date BETWEEN $3::date AND $4::date
+         GROUP BY 1
+       ),
+       exp AS (
+         SELECT
+           DATE_TRUNC($1, date)::date::text AS period,
+           COALESCE(SUM(amount), 0)         AS expenses
+         FROM expenses
+         WHERE date BETWEEN $3::date AND $4::date
+           AND deleted_at IS NULL
+         GROUP BY 1
+       )
+       SELECT
+         COALESCE(i.period, e.period) AS period,
+         COALESCE(i.bookings,  0)     AS bookings,
+         COALESCE(i.sales,     0)     AS sales,
+         COALESCE(e.expenses,  0)     AS expenses
+       FROM income i
+       FULL OUTER JOIN exp e ON i.period = e.period
        ORDER BY 1`,
       [trunc, this.TZ, from, to],
     );
@@ -77,6 +97,7 @@ export class ReportsService {
       bookings: parseFloat(r.bookings),
       sales: parseFloat(r.sales),
       total: parseFloat(r.bookings) + parseFloat(r.sales),
+      expenses: parseFloat(r.expenses),
     }));
   }
 
@@ -314,6 +335,100 @@ export class ReportsService {
     }));
   }
 
+  /**
+   * Retorna el listado de egresos del período con totales por categoría y método.
+   * Usa la tabla `expenses` (soft-delete: filtra `deleted_at IS NULL`).
+   */
+  async getExpenses(dto: ReportQueryDto): Promise<{
+    items: {
+      id: string;
+      date: string;
+      description: string;
+      category: string;
+      paymentMethod: string;
+      amount: number;
+    }[];
+    totalAmount: number;
+    byCategory: { category: string; total: number }[];
+    byPaymentMethod: { method: string; total: number }[];
+  }> {
+    const { from, to } = this.resolveDateRange(dto);
+
+    const items = await this.dataSource.query<{
+      id: string;
+      date: string;
+      description: string;
+      category: string;
+      payment_method: string;
+      amount: string;
+    }[]>(
+      `SELECT
+         id,
+         date::text,
+         description,
+         category,
+         payment_method,
+         amount
+       FROM expenses
+       WHERE date BETWEEN $1::date AND $2::date
+         AND deleted_at IS NULL
+       ORDER BY date DESC, created_at DESC`,
+      [from, to],
+    );
+
+    const byCategory = await this.dataSource.query<{
+      category: string;
+      total: string;
+    }[]>(
+      `SELECT
+         category,
+         SUM(amount) AS total
+       FROM expenses
+       WHERE date BETWEEN $1::date AND $2::date
+         AND deleted_at IS NULL
+       GROUP BY category
+       ORDER BY total DESC`,
+      [from, to],
+    );
+
+    const byPaymentMethod = await this.dataSource.query<{
+      payment_method: string;
+      total: string;
+    }[]>(
+      `SELECT
+         payment_method,
+         SUM(amount) AS total
+       FROM expenses
+       WHERE date BETWEEN $1::date AND $2::date
+         AND deleted_at IS NULL
+       GROUP BY payment_method
+       ORDER BY total DESC`,
+      [from, to],
+    );
+
+    const mapped = items.map((r) => ({
+      id: r.id,
+      date: r.date,
+      description: r.description,
+      category: r.category,
+      paymentMethod: r.payment_method,
+      amount: parseFloat(r.amount),
+    }));
+
+    return {
+      items: mapped,
+      totalAmount: mapped.reduce((s, e) => s + e.amount, 0),
+      byCategory: byCategory.map((r) => ({
+        category: r.category,
+        total: parseFloat(r.total),
+      })),
+      byPaymentMethod: byPaymentMethod.map((r) => ({
+        method: r.payment_method,
+        total: parseFloat(r.total),
+      })),
+    };
+  }
+
   /** Retorna los totales agregados del período para las cards del dashboard. */
   async getSummary(dto: ReportQueryDto): Promise<{
     totalRevenue: number;
@@ -322,6 +437,8 @@ export class ReportsService {
     cashTotal: number;
     transferTotal: number;
     transactionCount: number;
+    totalExpenses: number;
+    netProfit: number;
   }> {
     const { from, to } = this.resolveDateRange(dto);
 
@@ -333,6 +450,7 @@ export class ReportsService {
         cash_total: string;
         transfer_total: string;
         tx_count: string;
+        total_expenses: string;
       }[]
     >(
       `SELECT
@@ -341,20 +459,56 @@ export class ReportsService {
          COALESCE(SUM(CASE WHEN type = 'sale'    THEN amount_cash + amount_transfer ELSE 0 END), 0) AS sales_revenue,
          COALESCE(SUM(amount_cash), 0)                                                 AS cash_total,
          COALESCE(SUM(amount_transfer), 0)                                             AS transfer_total,
-         COUNT(*)                                                                       AS tx_count
+         COUNT(*)                                                                       AS tx_count,
+         (SELECT COALESCE(SUM(amount), 0)
+          FROM expenses
+          WHERE date BETWEEN $2::date AND $3::date
+            AND deleted_at IS NULL)                                                     AS total_expenses
        FROM transactions
        WHERE (created_at AT TIME ZONE $1)::date BETWEEN $2::date AND $3::date`,
       [this.TZ, from, to],
     );
 
     const r = rows[0];
+    const totalRevenue  = parseFloat(r.total_revenue);
+    const totalExpenses = parseFloat(r.total_expenses);
     return {
-      totalRevenue: parseFloat(r.total_revenue),
+      totalRevenue,
       bookingsRevenue: parseFloat(r.bookings_revenue),
       salesRevenue: parseFloat(r.sales_revenue),
       cashTotal: parseFloat(r.cash_total),
       transferTotal: parseFloat(r.transfer_total),
       transactionCount: parseInt(r.tx_count, 10),
+      totalExpenses,
+      netProfit: totalRevenue - totalExpenses,
     };
+  }
+
+  /** Retorna los productos con stock igual o inferior al umbral mínimo. */
+  async getLowStock(): Promise<{
+    id: string;
+    name: string;
+    stock: number;
+    minStock: number;
+  }[]> {
+    const rows = await this.dataSource.query<{
+      id: string;
+      name: string;
+      stock: string;
+      min_stock: string;
+    }[]>(
+      `SELECT id, name, stock, min_stock
+       FROM products
+       WHERE stock <= min_stock
+         AND is_active = true
+       ORDER BY (stock::numeric / NULLIF(min_stock, 0)) ASC NULLS LAST, name ASC`,
+    );
+
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      stock: parseInt(r.stock, 10),
+      minStock: parseInt(r.min_stock, 10),
+    }));
   }
 }

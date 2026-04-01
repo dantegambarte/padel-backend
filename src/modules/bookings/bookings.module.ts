@@ -9,12 +9,13 @@ import { BookingItem } from './entities/booking-item.entity';
 import { BookingPayment } from './entities/booking-payment.entity';
 import { Product } from '../products/entities/product.entity';
 import { Court } from '../courts/entities/court.entity';
+import { PricingShift } from '../pricing-shifts/entities/pricing-shift.entity';
 
 import { CashRegisterModule } from '../cash-register/cash-register.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Booking, BookingItem, BookingPayment, Product, Court]),
+    TypeOrmModule.forFeature([Booking, BookingItem, BookingPayment, Product, Court, PricingShift]),
     CashRegisterModule, // Para registrar movimientos en caja al crear turnos
   ],
   controllers: [BookingsController],
