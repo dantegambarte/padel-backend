@@ -14,7 +14,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { CourtsService } from './courts.service';
-import { BulkPricesDto, CreateCourtDto, UpdateCourtDto } from './dto/create-court.dto';
+import { CreateCourtDto, UpdateCourtDto } from './dto/create-court.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -51,14 +51,6 @@ export class CourtsController {
   @ApiOperation({ summary: 'Crear una nueva cancha (solo admin)' })
   create(@Body() dto: CreateCourtDto) {
     return this.courtsService.create(dto);
-  }
-
-  @Patch('bulk-prices')
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Actualizar precios de múltiples canchas en una sola operación (solo admin)' })
-  bulkUpdatePrices(@Body() dto: BulkPricesDto) {
-    return this.courtsService.bulkUpdatePrices(dto);
   }
 
   @Patch(':id')
