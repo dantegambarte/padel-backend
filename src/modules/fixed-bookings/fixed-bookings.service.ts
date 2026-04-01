@@ -272,17 +272,8 @@ export class FixedBookingsService {
     return `${y}-${m}-${day}`;
   }
 
-  /** Devuelve el precio de cancha según la duración del turno. */
-  private getCoursePrice(court: Court, durationMinutes: number): number {
-    switch (durationMinutes) {
-      case 30:
-        return Number(court.price30) || 0;
-      case 90:
-        return Number(court.price90) || 0;
-      case 120:
-        return Number(court.price120) || 0;
-      default:
-        return Number(court.price60) || 0;
-    }
+  /** Los precios ya no están en la entidad Court — el Motor de Precios Dinámico los gestiona. */
+  private getCoursePrice(_court: Court, _durationMinutes: number): number {
+    return 0;
   }
 }
