@@ -35,6 +35,12 @@ import { TeachersModule } from './modules/teachers/teachers.module';
 // ── Recordatorios / Cron ──────────────────────────────
 import { RemindersModule } from './modules/reminders/reminders.module';
 
+// ── Egresos ───────────────────────────────────────────
+import { ExpensesModule } from './modules/expenses/expenses.module';
+
+// ── Motor de Precios Dinámico ─────────────────────────
+import { PricingShiftsModule } from './modules/pricing-shifts/pricing-shifts.module';
+
 // ── Módulo transversal ────────────────────────────────
 import { SearchModule } from './modules/search/search.module';
 
@@ -81,6 +87,8 @@ import { SearchModule } from './modules/search/search.module';
     FixedBookingsModule,
     TeachersModule,
     RemindersModule,
+    ExpensesModule,
+    PricingShiftsModule,
     SearchModule,
   ],
   providers: [

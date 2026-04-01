@@ -30,10 +30,16 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const status = exception.getStatus();
 
     const exceptionResponse = exception.getResponse();
-    const message =
-      typeof exceptionResponse === 'string'
-        ? exceptionResponse
-        : (exceptionResponse as any).message || exception.message;
+    const isObject = typeof exceptionResponse === 'object' && exceptionResponse !== null;
+
+    const message = isObject
+      ? (exceptionResponse as any).message || exception.message
+      : (exceptionResponse as string) || exception.message;
+
+    // Preservar errorCode si el servicio lo incluyó (ej. CAJA_CERRADA)
+    const errorCode: string | undefined = isObject
+      ? (exceptionResponse as any).errorCode
+      : undefined;
 
     // Log de errores de servidor (5xx)
     if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
@@ -43,11 +49,14 @@ export class HttpExceptionFilter implements ExceptionFilter {
       );
     }
 
-    response.status(status).json({
+    const body: Record<string, unknown> = {
       statusCode: status,
       timestamp: new Date().toISOString(),
       path: request.url,
       message,
-    });
+    };
+    if (errorCode) body['errorCode'] = errorCode;
+
+    response.status(status).json(body);
   }
 }

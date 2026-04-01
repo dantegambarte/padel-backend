@@ -4,9 +4,10 @@ import { CashRegisterController } from './cash-register.controller';
 import { CashRegisterService } from './cash-register.service';
 import { CashSession } from './entities/cash-session.entity';
 import { Transaction } from './entities/transaction.entity';
+import { DailyClosureRecord } from './entities/daily-closure.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([CashSession, Transaction])],
+  imports: [TypeOrmModule.forFeature([CashSession, Transaction, DailyClosureRecord])],
   controllers: [CashRegisterController],
   providers: [CashRegisterService],
   // Exportamos el servicio para que BookingsModule y PosModule
