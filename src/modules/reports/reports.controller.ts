@@ -166,6 +166,39 @@ export class ReportsController {
    * `format=csv` se acepta como indicador semántico; la respuesta siempre es JSON
    * (el frontend realiza la conversión a CSV sin dependencias adicionales).
    */
+  /**
+   * GET /api/v1/reports/expenses?dateFrom=&dateTo=
+   *
+   * Listado de egresos del período con totales agregados por categoría
+   * y método de pago. Solo accesible para el rol ADMIN.
+   */
+  @Get('expenses')
+  @ApiOperation({
+    summary: 'Reporte de egresos del período',
+    description:
+      'Devuelve el listado de egresos con totales por categoría y método de pago.',
+  })
+  @ApiQuery({ name: 'date',     required: false, example: '2025-03-15' })
+  @ApiQuery({ name: 'dateFrom', required: false, example: '2025-03-01' })
+  @ApiQuery({ name: 'dateTo',   required: false, example: '2025-03-31' })
+  @ApiResponse({ status: 200, description: 'Reporte de egresos.' })
+  getExpenses(@Query() query: ReportQueryDto) {
+    return this.reportsService.getExpenses(query);
+  }
+
+  /**
+   * GET /api/v1/reports/low-stock
+   *
+   * Devuelve los productos activos cuyo stock es igual o menor al umbral mínimo.
+   * Utilizado por el widget de alertas en el Dashboard Admin.
+   */
+  @Get('low-stock')
+  @ApiOperation({ summary: 'Productos con stock bajo o agotado' })
+  @ApiResponse({ status: 200, description: 'Lista de productos en alerta de stock.' })
+  getLowStock() {
+    return this.reportsService.getLowStock();
+  }
+
   @Get('transactions')
   @ApiOperation({
     summary: 'Historial de transacciones (exportable)',
