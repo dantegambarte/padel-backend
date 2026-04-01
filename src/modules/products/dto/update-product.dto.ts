@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsString, IsNumber, IsBoolean, IsOptional, IsUUID, Min, MaxLength } from 'class-validator';
 
+
 export class UpdateProductDto {
   @ApiPropertyOptional()
   @IsOptional()
@@ -46,4 +47,13 @@ export class UpdateProductDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @ApiPropertyOptional({
+    example: 'water_bottle',
+    description: 'Nombre del icono de Material Symbols Rounded para identificación visual.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  icon?: string;
 }

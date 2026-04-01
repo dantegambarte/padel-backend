@@ -125,6 +125,7 @@ export class ProductsService {
       minStock: dto.minStock ?? 5,
       isFeatured: dto.isFeatured ?? false,
       isActive: true,
+      icon: dto.icon ?? 'inventory_2',
     });
 
     const saved = await this.productRepo.save(product);
@@ -148,6 +149,7 @@ export class ProductsService {
     if (dto.minStock !== undefined) product.minStock = dto.minStock;
     if (dto.isFeatured !== undefined) product.isFeatured = dto.isFeatured;
     if (dto.isActive !== undefined) product.isActive = dto.isActive;
+    if (dto.icon !== undefined) product.icon = dto.icon;
 
     if (dto.stock !== undefined) {
       if (dto.stock < 0) {
