@@ -1,6 +1,6 @@
 # PadelSys — Backend API
 
-Sistema integral de gestión para canchas de pádel. Construido con **NestJS**, **TypeORM** y **PostgreSQL**. Provee autenticación JWT, control de reservas con anti-overbooking, punto de venta, caja registradora y reportes financieros.
+Sistema integral de gestión para canchas de pádel. Construido con **NestJS**, **TypeORM** y **PostgreSQL**. Provee autenticación JWT, control de reservas con anti-overbooking, turnos fijos recurrentes, punto de venta, caja registradora, recordatorios y reportes financieros.
 
 ---
 
@@ -16,10 +16,15 @@ Sistema integral de gestión para canchas de pádel. Construido con **NestJS**, 
    - [Users](#users)
    - [Courts](#courts)
    - [Bookings](#bookings)
+   - [Fixed Bookings (Turnos Fijos)](#fixed-bookings-turnos-fijos)
+   - [Teachers (Profesores)](#teachers-profesores)
+   - [Pricing Shifts (Franjas de precio)](#pricing-shifts-franjas-de-precio)
    - [Products](#products)
    - [POS (Ventas)](#pos-ventas)
    - [Cash Register (Caja)](#cash-register-caja)
    - [Reports](#reports)
+   - [Search (Búsqueda global)](#search-búsqueda-global)
+   - [Reminders (Recordatorios)](#reminders-recordatorios)
    - [System Config](#system-config)
 7. [Modelo de datos](#modelo-de-datos)
 8. [Seguridad y autenticación](#seguridad-y-autenticación)
@@ -30,18 +35,20 @@ Sistema integral de gestión para canchas de pádel. Construido con **NestJS**, 
 
 ## Tecnologías
 
-| Categoría | Tecnología |
-|-----------|------------|
-| Framework | NestJS v10 |
-| Lenguaje | TypeScript v5 |
-| Base de datos | PostgreSQL 15 |
-| ORM | TypeORM v0.3 |
-| Auth | JWT (HS256) + Passport |
-| Hashing | bcrypt (10 rounds) |
-| Validación | class-validator + Joi |
-| Documentación | Swagger / OpenAPI |
-| Rate limiting | @nestjs/throttler |
-| Proceso prod | PM2 |
+| Categoría          | Tecnología             |
+| ------------------ | ---------------------- |
+| Framework          | NestJS v10             |
+| Lenguaje           | TypeScript v5          |
+| Base de datos      | PostgreSQL 15          |
+| ORM                | TypeORM v0.3           |
+| Auth               | JWT (HS256) + Passport |
+| Hashing            | bcrypt (10 rounds)     |
+| Validación         | class-validator + Joi  |
+| Documentación      | Swagger / OpenAPI      |
+| Rate limiting      | @nestjs/throttler      |
+| Tareas programadas | @nestjs/schedule       |
+| Exportación        | exceljs                |
+| Proceso prod       | PM2                    |
 
 ---
 
@@ -62,8 +69,13 @@ Sistema integral de gestión para canchas de pádel. Construido con **NestJS**, 
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌─────────────┐    │
 │  │   Auth   │ │  Users   │ │  Courts  │ │  Bookings   │    │
 │  ├──────────┤ ├──────────┤ ├──────────┤ ├─────────────┤    │
-│  │ Products │ │   POS    │ │  Cash    │ │   Reports   │    │
-│  └──────────┘ └──────────┘ └──────────┘ └─────────────┘    │
+│  │  Fixed   │ │ Teachers │ │ Pricing  │ │  Products   │    │
+│  │Bookings  │ │          │ │ Shifts   │ │             │    │
+│  ├──────────┤ ├──────────┤ ├──────────┤ ├─────────────┤    │
+│  │   POS    │ │  Cash    │ │ Reports  │ │   Search    │    │
+│  ├──────────┤ └──────────┘ └──────────┘ └─────────────┘    │
+│  │Reminders │                                               │
+│  └──────────┘                                               │
 │                                                            │
 │  ┌────────────────────────────────────────────────────┐    │
 │  │                SystemConfig Module                 │    │
@@ -77,10 +89,10 @@ Sistema integral de gestión para canchas de pádel. Construido con **NestJS**, 
 
 ### Roles del sistema
 
-| Rol | Descripción |
-|-----|-------------|
-| `ADMIN` | Acceso total: usuarios, productos, reportes, cancelaciones |
-| `EMPLOYEE` | Acceso operativo: reservas, ventas, consultas |
+| Rol        | Descripción                                                |
+| ---------- | ---------------------------------------------------------- |
+| `ADMIN`    | Acceso total: usuarios, productos, reportes, cancelaciones |
+| `EMPLOYEE` | Acceso operativo: reservas, ventas, consultas              |
 
 ---
 
@@ -89,7 +101,7 @@ Sistema integral de gestión para canchas de pádel. Construido con **NestJS**, 
 ```
 src/
 ├── main.ts                        # Bootstrap, CORS, prefijo global, Swagger
-├── app.module.ts                  # Módulo raíz: throttler, config, TypeORM
+├── app.module.ts                  # Módulo raíz: throttler, config, TypeORM, schedule
 ├── config/
 │   ├── database.config.ts         # Configuración TypeORM
 │   └── env.validation.ts          # Esquema Joi de variables de entorno
@@ -107,17 +119,32 @@ src/
 │   ├── migrations/
 │   │   ├── 1000000000001-AddIdempotencyKeyToSales.ts
 │   │   ├── 1000000000002-AddSessionVersionToUsers.ts
-│   │   └── 1000000000003-DropUniqueDateCashSessions.ts
+│   │   ├── 1000000000003-DropUniqueDateCashSessions.ts
+│   │   ├── 1000000000004-AddIsRentalToProductCategories.ts
+│   │   ├── 1000000000005-AddOpenedByIndexToCashSessions.ts
+│   │   ├── 1000000000006-AddTeacherPriceToCourts.ts
+│   │   ├── 1000000000007-CreateFixedBookings.ts
+│   │   ├── 1000000000008-FixedBookingsHasDeposit.ts
+│   │   ├── 1000000000009-RemoveHasDeposit.ts
+│   │   ├── 1000000000010-AddIsConfirmedToBookings.ts
+│   │   ├── 1000000000011-CreateTeachers.ts
+│   │   ├── 1000000000012-AddIconToProducts.ts
+│   │   └── 1000000000013-BackfillProductIcons.ts
 │   └── seed.ts                    # Seed inicial (admin + config)
 └── modules/
     ├── auth/
     ├── users/
     ├── courts/
     ├── bookings/
+    ├── fixed-bookings/
+    ├── teachers/
+    ├── pricing-shifts/
     ├── products/
     ├── pos/
     ├── cash-register/
     ├── reports/
+    ├── search/
+    ├── reminders/
     └── system-config/
 ```
 
@@ -174,12 +201,25 @@ npm run build
 pm2 start ecosystem.config.js
 ```
 
+### Migraciones
+
+```bash
+# Ejecutar todas las migraciones pendientes
+npm run migration:run
+
+# Revertir la última migración
+npm run migration:revert
+
+# Generar nueva migración a partir de cambios en entidades
+npm run migration:generate
+```
+
 ### URLs útiles
 
-| Servicio | URL |
-|----------|-----|
-| API | `http://localhost:3000/api/v1` |
-| Swagger | `http://localhost:3000/api/docs` |
+| Servicio | URL                              |
+| -------- | -------------------------------- |
+| API      | `http://localhost:3000/api/v1`   |
+| Swagger  | `http://localhost:3000/api/docs` |
 
 ---
 
@@ -194,12 +234,12 @@ pm2 start ecosystem.config.js
 
 Gestión de sesión y tokens JWT.
 
-| Método | Endpoint | Acceso | Descripción |
-|--------|----------|--------|-------------|
-| POST | `/auth/login` | Público | Login con username/password |
-| POST | `/auth/refresh` | Público | Renovar par de tokens |
-| GET | `/auth/me` | Autenticado | Perfil del usuario actual |
-| PATCH | `/auth/me/password` | Autenticado | Cambiar contraseña propia |
+| Método | Endpoint            | Acceso      | Descripción                 |
+| ------ | ------------------- | ----------- | --------------------------- |
+| POST   | `/auth/login`       | Público     | Login con username/password |
+| POST   | `/auth/refresh`     | Público     | Renovar par de tokens       |
+| GET    | `/auth/me`          | Autenticado | Perfil del usuario actual   |
+| PATCH  | `/auth/me/password` | Autenticado | Cambiar contraseña propia   |
 
 **Rate limits:** login → 5 req/min · refresh → 20 req/min
 
@@ -212,6 +252,7 @@ Refresh → nuevo access_token + nuevo refresh_token (rotación)
 ```
 
 **Respuesta de login:**
+
 ```json
 {
   "access_token": "eyJ...",
@@ -221,6 +262,7 @@ Refresh → nuevo access_token + nuevo refresh_token (rotación)
 ```
 
 **Cambio de contraseña propia (`PATCH /auth/me/password`):**
+
 - Requiere la contraseña actual para verificar identidad
 - Limpia el flag `mustChangePassword` al completar
 - Invalida todas las sesiones anteriores (incrementa `sessionVersion`)
@@ -231,16 +273,17 @@ Refresh → nuevo access_token + nuevo refresh_token (rotación)
 
 Gestión de usuarios del sistema. Solo **ADMIN**.
 
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| GET | `/users` | Listar todos los usuarios |
-| GET | `/users/:id` | Detalle de un usuario |
-| POST | `/users` | Crear usuario (ADMIN o EMPLOYEE) |
-| PATCH | `/users/:id` | Actualizar nombre o estado |
-| PATCH | `/users/:id/reset-password` | Restablecer contraseña (admin fuerza nueva clave) |
-| DELETE | `/users/:id` | Desactivar usuario (soft delete) |
+| Método | Endpoint                    | Descripción                                       |
+| ------ | --------------------------- | ------------------------------------------------- |
+| GET    | `/users`                    | Listar todos los usuarios                         |
+| GET    | `/users/:id`                | Detalle de un usuario                             |
+| POST   | `/users`                    | Crear usuario (ADMIN o EMPLOYEE)                  |
+| PATCH  | `/users/:id`                | Actualizar nombre o estado                        |
+| PATCH  | `/users/:id/reset-password` | Restablecer contraseña (admin fuerza nueva clave) |
+| DELETE | `/users/:id`                | Desactivar usuario (soft delete)                  |
 
 **Reglas de negocio:**
+
 - No se puede desactivar la propia cuenta
 - No se puede desactivar al último administrador activo
 - `reset-password` activa el flag `mustChangePassword` → el usuario deberá cambiarla en su próximo login
@@ -252,12 +295,14 @@ Gestión de usuarios del sistema. Solo **ADMIN**.
 
 Gestión de canchas de pádel.
 
-| Método | Endpoint | Acceso | Descripción |
-|--------|----------|--------|-------------|
-| GET | `/courts?onlyActive=true` | Todos | Listar canchas |
-| GET | `/courts/:id` | Todos | Detalle de cancha |
-| POST | `/courts` | Admin | Crear cancha |
-| PATCH | `/courts/:id` | Admin | Actualizar cancha |
+| Método | Endpoint                  | Acceso | Descripción       |
+| ------ | ------------------------- | ------ | ----------------- |
+| GET    | `/courts?onlyActive=true` | Todos  | Listar canchas    |
+| GET    | `/courts/:id`             | Todos  | Detalle de cancha |
+| POST   | `/courts`                 | Admin  | Crear cancha      |
+| PATCH  | `/courts/:id`             | Admin  | Actualizar cancha |
+
+**Campo nuevo:** `teacherPrice` — precio especial de la cancha cuando hay profesor asignado a la reserva.
 
 ---
 
@@ -265,15 +310,15 @@ Gestión de canchas de pádel.
 
 Módulo más complejo del sistema. Gestiona reservas con **anti-overbooking de dos capas**.
 
-| Método | Endpoint | Acceso | Descripción |
-|--------|----------|--------|-------------|
-| GET | `/bookings?date=YYYY-MM-DD&courtId=uuid` | Todos | Agenda del día |
-| GET | `/bookings/:id` | Todos | Detalle de reserva |
-| POST | `/bookings` | Todos | Crear reserva |
-| PATCH | `/bookings/:id` | Todos | Actualizar reserva |
-| POST | `/bookings/:id/move` | Todos | Mover reserva a otro slot |
-| POST | `/bookings/:id/duplicate` | Todos | Duplicar reserva en otro slot |
-| DELETE | `/bookings/:id` | Admin | Cancelar reserva |
+| Método | Endpoint                                 | Acceso | Descripción                   |
+| ------ | ---------------------------------------- | ------ | ----------------------------- |
+| GET    | `/bookings?date=YYYY-MM-DD&courtId=uuid` | Todos  | Agenda del día                |
+| GET    | `/bookings/:id`                          | Todos  | Detalle de reserva            |
+| POST   | `/bookings`                              | Todos  | Crear reserva                 |
+| PATCH  | `/bookings/:id`                          | Todos  | Actualizar reserva            |
+| POST   | `/bookings/:id/move`                     | Todos  | Mover reserva a otro slot     |
+| POST   | `/bookings/:id/duplicate`                | Todos  | Duplicar reserva en otro slot |
+| DELETE | `/bookings/:id`                          | Admin  | Cancelar reserva              |
 
 **Máquina de estados:**
 
@@ -284,20 +329,32 @@ BOOKED ──► PLAYING ──► COMPLETED  (terminal)
 ```
 
 **Anti-overbooking (dos capas):**
+
 1. **Advisory Lock PostgreSQL** — `pg_advisory_xact_lock()` sobre el hash del slot (cancha + fecha + hora), serializa solicitudes concurrentes
 2. **Constraint UNIQUE** en DB — `(court_id, date, hour)`, segunda red de seguridad a nivel base de datos
 
+**Campos nuevos en Booking:**
+
+| Campo            | Tipo            | Descripción                                                                 |
+| ---------------- | --------------- | --------------------------------------------------------------------------- |
+| `fixedBookingId` | UUID (nullable) | FK al turno fijo que generó esta reserva                                    |
+| `teacherId`      | UUID (nullable) | FK al profesor asignado                                                     |
+| `isConfirmed`    | boolean         | Indica si el cliente confirmó asistencia (solo relevante para turnos fijos) |
+
 **Mover turno (`POST /bookings/:id/move`):**
+
 - Traslada la reserva a otra cancha / fecha / hora
 - Verifica disponibilidad del slot destino con anti-overbooking
 - Conserva todos los datos originales (cliente, productos, pago)
 
 **Duplicar turno (`POST /bookings/:id/duplicate`):**
+
 - Crea una nueva reserva en otro slot copiando `clientName`, `priceType`, `durationMinutes` e items
 - El pago del nuevo turno comienza en $0
 - El slot original permanece sin cambios
 
 **Flujo transaccional de creación:**
+
 ```
 1. Advisory lock en slot
 2. Verificar cancha activa
@@ -318,35 +375,149 @@ BOOKED ──► PLAYING ──► COMPLETED  (terminal)
 
 ---
 
+### Fixed Bookings (Turnos Fijos)
+
+Gestión de reservas recurrentes semanales. Solo **ADMIN**.
+
+| Método | Endpoint                       | Descripción                                              |
+| ------ | ------------------------------ | -------------------------------------------------------- |
+| GET    | `/fixed-bookings`              | Listar todos los turnos fijos                            |
+| GET    | `/fixed-bookings/:id`          | Detalle de turno fijo                                    |
+| POST   | `/fixed-bookings`              | Crear turno fijo (genera 8 semanas de reservas)          |
+| PATCH  | `/fixed-bookings/:id`          | Actualizar turno fijo                                    |
+| DELETE | `/fixed-bookings/:id`          | Desactivar turno fijo (soft delete)                      |
+| DELETE | `/fixed-bookings/:id/cascade`  | Desactivar y eliminar reservas futuras con estado BOOKED |
+| POST   | `/fixed-bookings/:id/generate` | Generar manualmente las próximas 8 semanas de reservas   |
+
+**Campos de `FixedBooking`:**
+
+| Campo             | Tipo                  | Descripción                                       |
+| ----------------- | --------------------- | ------------------------------------------------- |
+| `clientName`      | varchar 150           | Nombre del cliente                                |
+| `phoneNumber`     | varchar 30 (nullable) | Teléfono para recordatorios WhatsApp              |
+| `dayOfWeek`       | int (1–7)             | Día de la semana en ISO 8601 (1=Lunes, 7=Domingo) |
+| `hour`            | varchar "HH:MM"       | Hora del turno                                    |
+| `durationMinutes` | int                   | Duración: 30, 60, 90 o 120 minutos                |
+| `courtId`         | UUID                  | Cancha asignada                                   |
+| `teacherId`       | UUID (nullable)       | Profesor asignado                                 |
+| `startDate`       | date "YYYY-MM-DD"     | Fecha desde la cual se generan reservas           |
+| `isActive`        | boolean               | Si el turno está vigente                          |
+| `notes`           | text (nullable)       | Notas adicionales                                 |
+
+**Reglas de negocio:**
+
+- Al crear un turno fijo se generan automáticamente reservas individuales para las próximas 8 semanas
+- El soft delete solo marca `isActive = false`; no cancela reservas ya generadas
+- El cascade delete cancela únicamente las reservas futuras en estado `BOOKED`
+- Las reservas generadas quedan enlazadas a su turno fijo vía `fixedBookingId`
+- Confirmación de asistencia: el admin marca `isConfirmed = true` en la reserva individual tras contactar al cliente por WhatsApp
+
+---
+
+### Teachers (Profesores)
+
+Gestión de profesores del club.
+
+| Método | Endpoint                         | Acceso | Descripción                                 |
+| ------ | -------------------------------- | ------ | ------------------------------------------- |
+| GET    | `/teachers`                      | Todos  | Listar profesores activos                   |
+| GET    | `/teachers?includeInactive=true` | Admin  | Listar todos incluyendo inactivos           |
+| GET    | `/teachers/:id`                  | Todos  | Detalle de profesor                         |
+| POST   | `/teachers`                      | Admin  | Crear profesor                              |
+| PATCH  | `/teachers/:id`                  | Admin  | Actualizar profesor                         |
+| DELETE | `/teachers/:id`                  | Admin  | Desactivar profesor (soft delete, HTTP 204) |
+
+**Campos de `Teacher`:**
+
+| Campo         | Tipo                   | Descripción                |
+| ------------- | ---------------------- | -------------------------- |
+| `fullName`    | varchar 150            | Nombre completo            |
+| `phoneNumber` | varchar 30 (nullable)  | Teléfono de contacto       |
+| `email`       | varchar 150 (nullable) | Email de contacto          |
+| `isActive`    | boolean                | Si el profesor está activo |
+
+**Reglas de negocio:**
+
+- Soft delete: `isActive = false`, nunca eliminación física
+- Si un profesor es eliminado, sus reservas y turnos fijos mantienen el registro (SET NULL en FK)
+- Empleados no pueden acceder a `?includeInactive=true` → 403 Forbidden
+
+---
+
+### Pricing Shifts (Franjas de precio)
+
+Define precios dinámicos por día y horario. Solo **ADMIN** para escritura.
+
+| Método | Endpoint                 | Acceso | Descripción                 |
+| ------ | ------------------------ | ------ | --------------------------- |
+| GET    | `/pricing-shifts`        | Admin  | Listar todas las franjas    |
+| GET    | `/pricing-shifts/active` | Todos  | Listar solo franjas activas |
+| GET    | `/pricing-shifts/:id`    | Admin  | Detalle de franja           |
+| POST   | `/pricing-shifts`        | Admin  | Crear franja de precio      |
+| PATCH  | `/pricing-shifts/:id`    | Admin  | Actualizar franja           |
+| DELETE | `/pricing-shifts/:id`    | Admin  | Eliminar franja (HTTP 204)  |
+
+**Campos de `PricingShift`:**
+
+| Campo                 | Tipo            | Descripción                                                 |
+| --------------------- | --------------- | ----------------------------------------------------------- |
+| `name`                | varchar 100     | Nombre descriptivo (ej: "Turno Mañana L-V")                 |
+| `startTime`           | varchar "HH:mm" | Hora de inicio (múltiplo de 30 min)                         |
+| `endTime`             | varchar "HH:mm" | Hora de fin (múltiplo de 30 min)                            |
+| `daysOfWeek`          | int[] JSON      | Días de la semana (0=Domingo, convención JS)                |
+| `price30min`          | numeric         | Precio para turno de 30 minutos                             |
+| `price60min`          | numeric         | Precio para turno de 60 minutos                             |
+| `price90min`          | numeric         | Precio para turno de 90 minutos                             |
+| `price120min`         | numeric         | Precio para turno de 120 minutos                            |
+| `teacherPricePerHour` | numeric         | Precio adicional por hora cuando hay profesor (prorrateado) |
+| `isActive`            | boolean         | Si la franja está vigente                                   |
+
+**Reglas de negocio:**
+
+- Solo las franjas activas se aplican al cálculo de precios
+- Los horarios deben ser múltiplos de 30 minutos (`:00` o `:30`)
+- El precio del profesor se proratea según la duración del turno
+
+---
+
 ### Products
 
 Gestión de inventario y catálogo de productos.
 
-| Método | Endpoint | Acceso | Descripción |
-|--------|----------|--------|-------------|
-| GET | `/products` | Todos | Listar con filtros |
-| GET | `/products/featured` | Todos | Productos destacados (agenda) |
-| GET | `/products/low-stock` | Todos | Alertas de stock mínimo |
-| GET | `/products/categories` | Todos | Categorías disponibles |
-| GET | `/products/summary` | Admin | Estadísticas de inventario |
-| GET | `/products/:id` | Todos | Detalle de producto |
-| POST | `/products` | Admin | Crear producto |
-| PATCH | `/products/:id` | Admin | Actualizar / ajustar stock |
-| DELETE | `/products/:id` | Admin | Desactivar producto (soft delete) |
+| Método | Endpoint               | Acceso | Descripción                       |
+| ------ | ---------------------- | ------ | --------------------------------- |
+| GET    | `/products`            | Todos  | Listar con filtros                |
+| GET    | `/products/featured`   | Todos  | Productos destacados (agenda)     |
+| GET    | `/products/low-stock`  | Todos  | Alertas de stock mínimo           |
+| GET    | `/products/categories` | Todos  | Categorías disponibles            |
+| GET    | `/products/summary`    | Admin  | Estadísticas de inventario        |
+| GET    | `/products/:id`        | Todos  | Detalle de producto               |
+| POST   | `/products`            | Admin  | Crear producto                    |
+| PATCH  | `/products/:id`        | Admin  | Actualizar / ajustar stock        |
+| DELETE | `/products/:id`        | Admin  | Desactivar producto (soft delete) |
 
 **Query params de `/products`:**
 
-| Param | Tipo | Descripción |
-|-------|------|-------------|
-| `search` | string | Busca por nombre |
-| `categoryId` | uuid | Filtra por categoría |
-| `lowStock` | boolean | Solo productos bajo mínimo |
+| Param        | Tipo    | Descripción                   |
+| ------------ | ------- | ----------------------------- |
+| `search`     | string  | Busca por nombre              |
+| `categoryId` | uuid    | Filtra por categoría          |
+| `lowStock`   | boolean | Solo productos bajo mínimo    |
 | `onlyActive` | boolean | Solo activos (default: false) |
 
+**Campos nuevos:**
+
+| Campo      | Entidad           | Descripción                                                                                                |
+| ---------- | ----------------- | ---------------------------------------------------------------------------------------------------------- |
+| `icon`     | `Product`         | Nombre de ícono de Material Symbols Rounded (default: `inventory_2`)                                       |
+| `isRental` | `ProductCategory` | Marca la categoría como alquiler — los productos en estas categorías **no descuentan stock** en ventas POS |
+
 **Reglas de negocio:**
+
 - El stock nunca puede quedar negativo (CHECK constraint en DB)
 - `isFeatured = true` expone el producto en los botones rápidos de la agenda
 - Las categorías se cargan automáticamente (eager loading)
+- Los productos de categorías con `isRental = true` se venden sin descontar stock (ej: alquiler de paletas)
 
 ---
 
@@ -354,10 +525,10 @@ Gestión de inventario y catálogo de productos.
 
 Punto de venta directa de productos (sin reserva).
 
-| Método | Endpoint | Acceso | Descripción |
-|--------|----------|--------|-------------|
-| GET | `/sales?date=YYYY-MM-DD` | Todos | Ventas del día |
-| POST | `/sales` | Todos | Registrar venta |
+| Método | Endpoint                 | Acceso | Descripción     |
+| ------ | ------------------------ | ------ | --------------- |
+| GET    | `/sales?date=YYYY-MM-DD` | Todos  | Ventas del día  |
+| POST   | `/sales`                 | Todos  | Registrar venta |
 
 **Header de idempotencia:**
 
@@ -368,18 +539,20 @@ X-Idempotency-Key: <uuid-generado-por-el-cliente>
 El frontend genera un UUID por intento de venta. Si la misma clave llega dos veces (doble clic, retry por red lenta), el backend retorna la venta ya creada sin volver a descontar stock ni registrar en caja.
 
 **Flujo transaccional:**
+
 ```
 1. Verificar clave de idempotencia (si existe → retornar venta original)
 2. SELECT FOR UPDATE en cada producto
-3. Validar stock disponible
+3. Validar stock disponible (omitido para categorías isRental)
 4. Snapshot de precio (unitPrice)
 5. Crear Sale + SaleItems (con idempotency_key)
-6. Decrementar stock atómicamente
+6. Decrementar stock atómicamente (omitido para categorías isRental)
 7. Registrar en caja
 8. COMMIT — o ROLLBACK total
 ```
 
 **Validaciones:**
+
 - Se requiere caja abierta (si no hay sesión activa → 503)
 - El total pagado debe cubrir el total de la venta
 - El precio capturado al momento de la venta no se ve afectado por cambios futuros al producto
@@ -390,13 +563,14 @@ El frontend genera un UUID por intento de venta. Si la misma clave llega dos vec
 
 Gestión de sesiones de caja diaria. Todas las operaciones (reservas y ventas) registran sus transacciones aquí automáticamente.
 
-| Método | Endpoint | Acceso | Descripción |
-|--------|----------|--------|-------------|
-| GET | `/cash/current?date=YYYY-MM-DD` | Todos | Estado y totales de la caja |
-| POST | `/cash/open` | Todos | Apertura manual de jornada |
-| POST | `/cash/close` | Todos | Cierre Z (cierre del día) |
+| Método | Endpoint                        | Acceso | Descripción                 |
+| ------ | ------------------------------- | ------ | --------------------------- |
+| GET    | `/cash/current?date=YYYY-MM-DD` | Todos  | Estado y totales de la caja |
+| POST   | `/cash/open`                    | Todos  | Apertura manual de jornada  |
+| POST   | `/cash/close`                   | Todos  | Cierre Z (cierre del día)   |
 
 **Flujo de sesión:**
+
 ```
 POST /cash/open  (empleado declara fondo inicial)
         │
@@ -408,16 +582,19 @@ POST /cash/open  (empleado declara fondo inicial)
 ```
 
 **Apertura de caja (`POST /cash/open`):**
+
 - El empleado declara el fondo inicial (cambio/vuelto disponible)
 - El fondo es solo referencia operativa, no entra en el arqueo
 - Falla con 409 si ya existe una sesión abierta
 
 **Sesiones múltiples por día:**
+
 - Se eliminó el constraint UNIQUE en `date` de `cash_sessions`
 - La unicidad real es "solo una sesión OPEN a la vez" (validado a nivel de aplicación)
 - Permite turnos mañana/tarde con sesiones independientes
 
 **GET `/cash/current`:**
+
 - Sin `?date` → devuelve la sesión OPEN activa (aunque haya cruzado la medianoche)
 - Con `?date` → consulta histórica de ese día comercial
 - Si no hay sesión → `session: null` (frontend muestra pantalla de apertura)
@@ -428,6 +605,7 @@ POST /cash/open  (empleado declara fondo inicial)
 - `Transaction` — registro polimórfico de cada movimiento (tipo: `BOOKING` | `SALE`)
 
 **Respuesta de `/cash/current`:**
+
 ```json
 {
   "session": { "id": "uuid", "date": "2026-03-10", "status": "OPEN" },
@@ -446,19 +624,85 @@ POST /cash/open  (empleado declara fondo inicial)
 
 Reportes financieros y operacionales. Solo **ADMIN**.
 
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| GET | `/reports/summary?dateFrom=&dateTo=` | Cards del dashboard |
-| GET | `/reports/revenue?dateFrom=&dateTo=&groupBy=day\|week\|month` | Ingresos en el tiempo |
-| GET | `/reports/payment-methods` | Distribución efectivo / transferencia |
-| GET | `/reports/products-ranking` | Top 20 productos por unidades vendidas |
-| GET | `/reports/transactions/export` | Datos para exportar a CSV |
+| Método | Endpoint                                                      | Descripción                             |
+| ------ | ------------------------------------------------------------- | --------------------------------------- |
+| GET    | `/reports/summary?dateFrom=&dateTo=`                          | Cards del dashboard                     |
+| GET    | `/reports/kpis?dateFrom=&dateTo=`                             | KPIs ejecutivos del dashboard           |
+| GET    | `/reports/revenue?dateFrom=&dateTo=&groupBy=day\|week\|month` | Ingresos en el tiempo                   |
+| GET    | `/reports/revenue/trend?dateFrom=&dateTo=`                    | Tendencia diaria de ingresos            |
+| GET    | `/reports/payment-methods?dateFrom=&dateTo=`                  | Distribución efectivo / transferencia   |
+| GET    | `/reports/products-ranking?dateFrom=&dateTo=`                 | Top 20 productos por unidades vendidas  |
+| GET    | `/reports/expenses?dateFrom=&dateTo=`                         | Reporte de gastos                       |
+| GET    | `/reports/low-stock`                                          | Productos con stock bajo o agotado      |
+| GET    | `/reports/transactions?dateFrom=&dateTo=`                     | Historial de transacciones (exportable) |
 
 **Detalles técnicos:**
+
 - Usa SQL crudo con parámetros seguros (sin riesgo de inyección)
 - Timezone: `America/Argentina/Buenos_Aires`
 - `getProductsRanking()` realiza un `UNION` entre `sale_items` y `booking_items`
 - Agrupación temporal con `DATE_TRUNC` de PostgreSQL
+- El endpoint de transacciones soporta exportación (usa `exceljs` para generar archivos)
+
+---
+
+### Search (Búsqueda global)
+
+Búsqueda full-text unificada sobre productos, reservas y ventas.
+
+| Método | Endpoint            | Acceso      | Descripción     |
+| ------ | ------------------- | ----------- | --------------- |
+| GET    | `/search?q=término` | Autenticado | Búsqueda global |
+
+**Rate limit:** 30 req/min (el frontend aplica debounce de 300ms adicional)
+
+**Respuesta:**
+
+```json
+{
+  "products": [{ "id": "uuid", "label": "Pelota Penn", "subLabel": "Pelotas" }],
+  "bookings": [
+    { "id": "uuid", "label": "Juan García", "subLabel": "Cancha 1 — 10:00", "date": "2026-04-02" }
+  ],
+  "sales": [{ "id": "uuid", "label": "María López", "subLabel": "02/04/2026 — $5.000" }]
+}
+```
+
+**Comportamiento:**
+
+- Máximo 6 resultados por categoría
+- Productos: búsqueda ILIKE por nombre, solo activos
+- Reservas: no canceladas, desde hoy en adelante
+- Ventas: desde hoy en adelante, filtradas por nombre de cliente
+- Timezone-aware: usa `America/Argentina/Buenos_Aires`
+
+---
+
+### Reminders (Recordatorios)
+
+Recordatorios de turnos fijos para notificaciones por WhatsApp.
+
+| Método | Endpoint              | Acceso | Descripción                  |
+| ------ | --------------------- | ------ | ---------------------------- |
+| GET    | `/reminders/upcoming` | Admin  | Turnos fijos de hoy y mañana |
+
+**Respuesta:**
+
+```json
+{
+  "today": [
+    { "bookingId": "uuid", "clientName": "Juan García", "phoneNumber": "+5491...", "courtName": "Cancha 1", "date": "2026-04-02", "hour": "10:00" }
+  ],
+  "tomorrow": [...]
+}
+```
+
+**Reglas de negocio:**
+
+- Solo retorna reservas generadas desde turnos fijos (`fixedBookingId != null`)
+- Excluye reservas canceladas
+- El campo `phoneNumber` viene del turno fijo original
+- El servicio expone además `getUpcomingForCron()` para uso interno: retorna recordatorios en ventana de 23–24h ("mañana") y 1–2h ("hoy"), usado para envío automático por cron
 
 ---
 
@@ -466,21 +710,21 @@ Reportes financieros y operacionales. Solo **ADMIN**.
 
 Configuración global del sistema. Solo **ADMIN**.
 
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| GET | `/config` | Obtener toda la configuración |
-| PATCH | `/config/:key` | Actualizar un valor |
-| PUT | `/config/bulk` | Actualizar múltiples valores |
+| Método | Endpoint       | Descripción                   |
+| ------ | -------------- | ----------------------------- |
+| GET    | `/config`      | Obtener toda la configuración |
+| PATCH  | `/config/:key` | Actualizar un valor           |
+| PUT    | `/config/bulk` | Actualizar múltiples valores  |
 
 **Claves predefinidas:**
 
-| Clave | Descripción |
-|-------|-------------|
-| `precio_estandar` | Precio de hora estándar |
+| Clave             | Descripción                  |
+| ----------------- | ---------------------------- |
+| `precio_estandar` | Precio de hora estándar      |
 | `precio_profesor` | Precio de hora para profesor |
-| `hora_apertura` | Hora de apertura del club |
-| `hora_cierre` | Hora de cierre del club |
-| `nombre_club` | Nombre del club |
+| `hora_apertura`   | Hora de apertura del club    |
+| `hora_cierre`     | Hora de cierre del club      |
+| `nombre_club`     | Nombre del club              |
 
 ---
 
@@ -488,26 +732,37 @@ Configuración global del sistema. Solo **ADMIN**.
 
 ```
 User ──< Booking >── Court
-  │          │
-  │          ├──< BookingItem >── Product >── ProductCategory
+  │          │           └── teacherPrice
+  │          ├── fixedBookingId ──> FixedBooking >── Court
+  │          ├── teacherId ──────────────────────> Teacher
+  │          ├──< BookingItem >── Product >── ProductCategory (isRental)
   │          └──── BookingPayment
   │
   ├──< Sale >── CashSession
   │      └──< SaleItem >── Product
   │
-  └──< CashSession (opened/closed)
-             └──< Transaction
+  ├──< CashSession (opened/closed)
+  │         └──< Transaction
+  │
+  └──< FixedBooking >── Court
+             └── teacherId ──> Teacher
+
+PricingShift  (tabla de lookup, sin FK a otras entidades)
 ```
 
 **Relaciones clave:**
 
-| Entidad | Relación | Descripción |
-|---------|----------|-------------|
-| Booking → BookingItem | OneToMany | Productos consumidos en la reserva |
-| Booking → BookingPayment | OneToOne | Pago de la reserva |
-| Sale → SaleItem | OneToMany | Productos de una venta directa |
-| CashSession → Transaction | OneToMany | Todos los movimientos del día |
-| Product → ProductCategory | ManyToOne | Categorización del inventario |
+| Entidad                   | Relación             | Descripción                        |
+| ------------------------- | -------------------- | ---------------------------------- |
+| Booking → BookingItem     | OneToMany            | Productos consumidos en la reserva |
+| Booking → BookingPayment  | OneToOne             | Pago de la reserva                 |
+| Booking → FixedBooking    | ManyToOne (nullable) | Turno fijo que originó la reserva  |
+| Booking → Teacher         | ManyToOne (nullable) | Profesor asignado a la reserva     |
+| FixedBooking → Court      | ManyToOne            | Cancha del turno fijo              |
+| FixedBooking → Teacher    | ManyToOne (nullable) | Profesor del turno fijo            |
+| Sale → SaleItem           | OneToMany            | Productos de una venta directa     |
+| CashSession → Transaction | OneToMany            | Todos los movimientos del día      |
+| Product → ProductCategory | ManyToOne            | Categorización del inventario      |
 
 ---
 
@@ -527,18 +782,18 @@ Cada usuario tiene un `sessionVersion` en DB. Cada login lo incrementa e incluye
 
 ### Guards (aplicados globalmente)
 
-| Guard | Propósito |
-|-------|-----------|
-| `JwtAuthGuard` | Valida el Bearer token en cada request |
-| `RolesGuard` | Verifica que el rol del usuario coincida con `@Roles()` |
-| `ThrottlerGuard` | Rate limiting (60 req/min por defecto) |
+| Guard            | Propósito                                               |
+| ---------------- | ------------------------------------------------------- |
+| `JwtAuthGuard`   | Valida el Bearer token en cada request                  |
+| `RolesGuard`     | Verifica que el rol del usuario coincida con `@Roles()` |
+| `ThrottlerGuard` | Rate limiting (60 req/min por defecto)                  |
 
 ### Protecciones adicionales
 
 - Mensajes de error genéricos en login (evita enumeración de usuarios)
 - El strategy JWT recarga el usuario desde DB en cada request (detecta cuentas desactivadas)
 - Contraseñas nunca expuestas en respuestas (`passwordHash` excluida)
-- ValidationPipe global con `whitelist: true` (descarta campos no declarados en DTOs)
+- ValidationPipe global con `whitelist: true` y `forbidNonWhitelisted: true` (descarta y rechaza campos no declarados en DTOs)
 - Flag `mustChangePassword`: activo cuando un admin resetea la clave de otro usuario
 
 ### Formato de error uniforme
@@ -573,7 +828,7 @@ Usados en dos módulos críticos:
 
 ### 4. Soft Deletes
 
-Usuarios y productos nunca se eliminan físicamente. Se marcan como `isActive = false`, preservando el historial y respetando las foreign keys.
+Usuarios, productos, profesores y turnos fijos nunca se eliminan físicamente. Se marcan como `isActive = false`, preservando el historial y respetando las foreign keys.
 
 ### 5. Bloqueo pesimista en stock (`SELECT FOR UPDATE`)
 
@@ -590,6 +845,18 @@ Antes de decrementar stock en ventas y reservas, se bloquea la fila del producto
 ### 8. Sesión única por usuario
 
 `User.sessionVersion` se incrementa en cada login. El JWT payload incluye este valor y el strategy lo valida en cada request, garantizando que un nuevo login invalide automáticamente todos los tokens anteriores del mismo usuario.
+
+### 9. Generación automática de turnos fijos
+
+Al crear un `FixedBooking`, el servicio genera automáticamente reservas individuales para las próximas 8 semanas, respetando el día de la semana y la hora configurados. La generación también puede dispararse manualmente via `POST /fixed-bookings/:id/generate`.
+
+### 10. Precios dinámicos por franja horaria
+
+Las `PricingShift` reemplazan el sistema de precio único por tipo. El precio de una reserva se determina en base al día de la semana y la hora del turno, con soporte para duraciones de 30, 60, 90 y 120 minutos. Si hay profesor, se aplica el `teacherPricePerHour` prorrateado.
+
+### 11. Categorías de alquiler (isRental)
+
+Las categorías de producto con `isRental = true` permiten registrar ventas de alquileres (paletas, pelotas, etc.) sin descontar stock. El flag se define a nivel de categoría, no de producto individual.
 
 ---
 
