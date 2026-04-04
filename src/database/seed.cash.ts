@@ -479,7 +479,7 @@ async function seedCash(): Promise<void> {
           const sale = await insertSale(sId, user, saleSpec);
           const customerLabel = saleSpec.customer ? ` (${saleSpec.customer})` : '';
           await insertTx(sId, user, TransactionType.SALE, sale.id,
-            `Venta mostrador — 2 unidades${customerLabel}`, saleSpec.cash, saleSpec.tr);
+            `Venta cantina — 2 unidades${customerLabel}`, saleSpec.cash, saleSpec.tr);
         }
 
         // Reservas

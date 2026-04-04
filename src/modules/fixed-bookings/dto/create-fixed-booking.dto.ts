@@ -63,6 +63,11 @@ export class CreateFixedBookingDto {
   })
   startDate: string;
 
+  @ApiPropertyOptional({ example: 'uuid-del-profesor', description: 'UUID del profesor vinculado (opcional).' })
+  @IsOptional()
+  @IsUUID('4', { message: 'teacherId debe ser un UUID válido.' })
+  teacherId?: string | null;
+
   @ApiPropertyOptional({ example: 'Trae su propia raqueta' })
   @IsOptional()
   @IsString()

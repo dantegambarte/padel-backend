@@ -123,7 +123,7 @@ export class PosService {
         cashSessionId: session.id,
         type: TransactionType.SALE,
         referenceId: savedSale.id,
-        concept: `Venta mostrador - ${resolvedItems.length} producto(s)`,
+        concept: `Venta cantina - ${resolvedItems.length} producto(s)`,
         amountCash,
         amountTransfer,
         createdByUserId: user.id,

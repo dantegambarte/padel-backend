@@ -20,13 +20,29 @@ export interface SearchResponse {
   sales: SearchResultItem[];
 }
 
-const MAX_RESULTS_PER_CATEGORY = 6;
+const MAX_PRODUCTS = 6;
+const MAX_BOOKINGS = 3;   // Limitado para evitar saturar con turnos fijos recurrentes.
+const MAX_SALES    = 6;
 
 /** Fecha de hoy en zona horaria Argentina (YYYY-MM-DD). */
 function todayArgentina(): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Argentina/Buenos_Aires',
   }).format(new Date());
+}
+
+/**
+ * Formatea una fecha YYYY-MM-DD al formato legible "Vie, 11/04/2026".
+ * Se usa para el subLabel de las reservas en el buscador.
+ */
+function formatBookingDate(dateStr: string): string {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  // Construir la fecha como local (sin timezone shift) usando UTC noon.
+  const d = new Date(Date.UTC(year, month - 1, day, 12));
+  const weekday = d.toLocaleDateString('es-AR', { weekday: 'short', timeZone: 'UTC' });
+  const dayStr  = String(day).padStart(2, '0');
+  const monStr  = String(month).padStart(2, '0');
+  return `${weekday.charAt(0).toUpperCase()}${weekday.slice(1, 3)}, ${dayStr}/${monStr}/${year}`;
 }
 
 @Injectable()
@@ -48,16 +64,18 @@ export class SearchService {
 
     const today = todayArgentina();
 
-    const [products, bookings, sales] = await Promise.all([
+    const [products, rawBookings, sales] = await Promise.all([
       // ── Productos de la cantina ─────────────────────────────────────────
       this.productRepo.find({
         where: { name: ILike(`%${term}%`), isActive: true },
         relations: ['category'],
         order: { name: 'ASC' },
-        take: MAX_RESULTS_PER_CATEGORY,
+        take: MAX_PRODUCTS,
       }),
 
       // ── Reservas de hoy en adelante (no canceladas) ─────────────────────
+      // Traemos más filas de las que necesitamos para poder deduplicar por
+      // clientName y mostrar solo la próxima instancia de cada turno fijo.
       this.bookingRepo
         .createQueryBuilder('booking')
         .leftJoinAndSelect('booking.court', 'court')
@@ -68,21 +86,29 @@ export class SearchService {
         .andWhere('booking.date >= :today', { today })
         .orderBy('booking.date', 'ASC')
         .addOrderBy('booking.hour', 'ASC')
-        .take(MAX_RESULTS_PER_CATEGORY)
+        .take(MAX_BOOKINGS * 10)
         .getMany(),
 
-      // ── Ventas POS del día de hoy (con customerName) ────────────────────
+      // ── Ventas POS (historial completo, con customerName) ───────────────
       this.saleRepo
         .createQueryBuilder('sale')
         .where('sale.customerName ILIKE :term', { term: `%${term}%` })
-        .andWhere(
-          `DATE(sale.createdAt AT TIME ZONE 'America/Argentina/Buenos_Aires') >= :today`,
-          { today },
-        )
         .orderBy('sale.createdAt', 'DESC')
-        .take(MAX_RESULTS_PER_CATEGORY)
+        .take(MAX_SALES)
         .getMany(),
     ]);
+
+    // Deduplicar reservas: solo la próxima instancia por clientName.
+    const seenClients = new Set<string>();
+    const bookings: Booking[] = [];
+    for (const b of rawBookings) {
+      const key = b.clientName.trim().toLowerCase();
+      if (!seenClients.has(key)) {
+        seenClients.add(key);
+        bookings.push(b);
+      }
+      if (bookings.length >= MAX_BOOKINGS) break;
+    }
 
     return {
       products: products.map((p) => ({
@@ -94,7 +120,7 @@ export class SearchService {
       bookings: bookings.map((b) => ({
         id: b.id,
         label: b.clientName,
-        subLabel: `${b.court?.name ?? ''} — ${b.hour}hs`,
+        subLabel: `${formatBookingDate(b.date)} | ${b.court?.name ?? ''} — ${b.hour}hs`,
         date: b.date,
       })),
 

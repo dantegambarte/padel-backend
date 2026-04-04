@@ -11,6 +11,7 @@ import { FixedBooking } from './entities/fixed-booking.entity';
 import { Booking, BookingStatus, PriceType } from '../bookings/entities/booking.entity';
 import { Court } from '../courts/entities/court.entity';
 import { User } from '../users/entities/user.entity';
+import { PricingShift } from '../pricing-shifts/entities/pricing-shift.entity';
 
 import { CreateFixedBookingDto } from './dto/create-fixed-booking.dto';
 import { UpdateFixedBookingDto } from './dto/update-fixed-booking.dto';
@@ -31,6 +32,9 @@ export class FixedBookingsService {
 
     @InjectRepository(Court)
     private readonly courtRepo: Repository<Court>,
+
+    @InjectRepository(PricingShift)
+    private readonly shiftRepo: Repository<PricingShift>,
 
     @InjectDataSource()
     private readonly dataSource: DataSource,
@@ -76,6 +80,7 @@ export class FixedBookingsService {
       isActive: true,
       startDate: dto.startDate,
       notes: dto.notes ?? null,
+      teacherId: dto.teacherId ?? null,
     });
 
     const saved = await this.fixedRepo.save(fixed);
@@ -106,6 +111,7 @@ export class FixedBookingsService {
       ...(dto.isActive !== undefined && { isActive: dto.isActive }),
       ...(dto.startDate !== undefined && { startDate: dto.startDate }),
       ...(dto.notes !== undefined && { notes: dto.notes }),
+      ...(dto.teacherId !== undefined && { teacherId: dto.teacherId ?? null }),
     });
 
     const saved = await this.fixedRepo.save(fixed);
@@ -190,7 +196,11 @@ export class FixedBookingsService {
     user: User,
   ): Promise<number> {
     const dates = this.getNextOccurrences(fixed.startDate, fixed.dayOfWeek, WEEKS_TO_GENERATE);
-    const priceAmount = this.getCoursePrice(court, fixed.durationMinutes);
+
+    // Convertir dayOfWeek de ISO (1=Lun…7=Dom) al formato JS getDay() (0=Dom…6=Sáb)
+    // que usan los pricing shifts, para que el matching de franjas sea correcto.
+    const jsDayOfWeek = fixed.dayOfWeek === 7 ? 0 : fixed.dayOfWeek;
+    const { amount: priceAmount, shiftName: appliedShiftName } = await this.calculateDynamicPrice(jsDayOfWeek, fixed.hour, fixed.durationMinutes);
 
     let created = 0;
     for (const date of dates) {
@@ -211,11 +221,13 @@ export class FixedBookingsService {
         hour: fixed.hour,
         clientName: fixed.clientName,
         durationMinutes: fixed.durationMinutes,
-        priceType: PriceType.STANDARD,
+        priceType: fixed.teacherId ? PriceType.PROFESSOR : PriceType.STANDARD,
         priceAmount,
+        appliedShiftName,
         status: BookingStatus.BOOKED,
         createdByUserId: user.id,
         fixedBookingId: fixed.id,
+        teacherId: fixed.teacherId ?? null,
       });
 
       try {
@@ -272,8 +284,52 @@ export class FixedBookingsService {
     return `${y}-${m}-${day}`;
   }
 
-  /** Los precios ya no están en la entidad Court — el Motor de Precios Dinámico los gestiona. */
-  private getCoursePrice(_court: Court, _durationMinutes: number): number {
-    return 0;
+  /**
+   * Calcula el precio del turno usando el mismo motor de franjas horarias que bookings.service.ts.
+   * @param dayOfWeek  - Día de la semana en formato JS Date.getDay() (0=Dom, 1=Lun, …, 6=Sáb).
+   * @param hour       - Hora del turno en formato 'HH:mm'.
+   * @param duration   - Duración en minutos (30, 60, 90, 120).
+   */
+  private async calculateDynamicPrice(
+    dayOfWeek: number,
+    hour: string,
+    duration: number,
+  ): Promise<{ amount: number; shiftName: string }> {
+    const [h, m] = hour.split(':').map(Number);
+    const bookingMin = h * 60 + m;
+
+    const shifts = await this.shiftRepo.find({ where: { isActive: true } });
+
+    const matching = shifts.find((s) => {
+      const days = (s.daysOfWeek as number[]).map(Number);
+      if (!days.includes(dayOfWeek)) return false;
+      const [sh, sm] = s.startTime.split(':').map(Number);
+      const [eh, em] = s.endTime.split(':').map(Number);
+      const startMin = sh * 60 + sm;
+      const endMin   = eh * 60 + em;
+      // Franja normal (mismo día) vs. franja que cruza medianoche
+      return startMin <= endMin
+        ? bookingMin >= startMin && bookingMin < endMin
+        : bookingMin >= startMin || bookingMin < endMin;
+    });
+
+    if (matching) {
+      let base: number;
+      switch (duration) {
+        case 30:  base = Number(matching.price30min);  break;
+        case 90:  base = Number(matching.price90min);  break;
+        case 120: base = Number(matching.price120min); break;
+        default:  base = Number(matching.price60min);  break;
+      }
+      this.logger.log(
+        `Precio turno fijo: franja "${matching.name}" → $${base} (${duration}min, día=${dayOfWeek}, hora=${hour})`,
+      );
+      return { amount: base, shiftName: matching.name };
+    }
+
+    this.logger.warn(
+      `Sin franja horaria para día=${dayOfWeek} hora=${hour}. Precio = 0.`,
+    );
+    return { amount: 0, shiftName: 'Estándar' };
   }
 }

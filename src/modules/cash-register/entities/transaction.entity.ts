@@ -53,7 +53,7 @@ export class Transaction {
   /**
    * Descripción legible para el historial.
    * Ej: "Turno Cancha 2 - 15:00hs (Carlos Rodríguez)"
-   *     "Venta mostrador - 3 productos"
+   *     "Venta cantina - 3 productos"
    */
   @Column({ type: 'varchar', length: 255 })
   concept: string;
