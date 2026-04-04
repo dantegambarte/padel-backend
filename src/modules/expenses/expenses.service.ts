@@ -1,15 +1,40 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
-import { Expense, PaymentMethod } from './entities/expense.entity';
+import { Expense, ExpenseCategory, PaymentMethod } from './entities/expense.entity';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
 import { CashRegisterService } from '../cash-register/cash-register.service';
+import { UserRole } from '../users/entities/user.entity';
+
+/** Categorías que solo el administrador puede registrar. */
+const ADMIN_ONLY_CATEGORIES = new Set<ExpenseCategory>([ExpenseCategory.SALARY]);
+
+/** Fecha comercial de hoy en Argentina (YYYY-MM-DD, corte a las 3 AM). */
+function businessDateToday(): string {
+  const now = new Date();
+  const ar = new Date(
+    now.toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' }),
+  );
+  if (ar.getHours() < 3) ar.setDate(ar.getDate() - 1);
+  const y = ar.getFullYear();
+  const m = String(ar.getMonth() + 1).padStart(2, '0');
+  const d = String(ar.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+export interface FindAllOptions {
+  role: UserRole;
+  /** Sólo aplica para admin: filtro de rango de fechas. */
+  from?: string;
+  to?: string;
+}
 
 @Injectable()
 export class ExpensesService {
@@ -20,12 +45,22 @@ export class ExpensesService {
   ) {}
 
   /**
-   * Crea un nuevo egreso.
+   * Crea un nuevo egreso vinculando el usuario que lo genera.
    * REGLA DE NEGOCIO: Si el método de pago es Efectivo, vincula la sesión de
    * caja actualmente ABIERTA para que el gasto impacte en el Cierre Z.
    */
-  async create(dto: CreateExpenseDto): Promise<Expense> {
-    const expense = this.expenseRepo.create(dto);
+  async create(
+    dto: CreateExpenseDto,
+    createdByUserId: string,
+    userRole: UserRole,
+  ): Promise<Expense> {
+    if (userRole !== UserRole.ADMIN && ADMIN_ONLY_CATEGORIES.has(dto.category as ExpenseCategory)) {
+      throw new ForbiddenException(
+        'No tienes permisos suficientes para registrar gastos en esta categoría administrativa.',
+      );
+    }
+
+    const expense = this.expenseRepo.create({ ...dto, createdByUserId });
 
     if (dto.paymentMethod === PaymentMethod.CASH) {
       const sessionData = await this.cashRegisterService.getCurrentSession();
@@ -37,7 +72,6 @@ export class ExpensesService {
       }
 
       // Restricción física: no se puede gastar más efectivo del que hay en el cajón.
-      // Disponible = Fondo inicial + Ingresos en efectivo − Egresos ya registrados
       const availableCash = sessionData.initialBalance + sessionData.cashExpected;
       if (dto.amount > availableCash) {
         const fmt = (n: number) =>
@@ -54,16 +88,43 @@ export class ExpensesService {
     return this.expenseRepo.save(expense);
   }
 
-  /** Devuelve todos los egresos ordenados del más reciente al más antiguo (sin soft-deleted). */
-  findAll(): Promise<Expense[]> {
-    return this.expenseRepo.find({
-      order: { createdAt: 'DESC' },
-    });
+  /**
+   * Devuelve egresos según el rol del solicitante:
+   * - ADMIN: todos los egresos, opcionalmente filtrados por rango de fechas.
+   * - EMPLOYEE: solo egresos de la jornada comercial de hoy creados por empleados
+   *   (nunca egresos del administrador ni de días anteriores).
+   */
+  async findAll(options: FindAllOptions): Promise<Expense[]> {
+    const qb = this.expenseRepo
+      .createQueryBuilder('expense')
+      .leftJoin('expense.createdByUser', 'creator')
+      .addSelect(['creator.id', 'creator.fullName', 'creator.role'])
+      .orderBy('expense.createdAt', 'DESC');
+
+    if (options.role === UserRole.ADMIN) {
+      // Admin: filtro de rango de fechas opcional.
+      if (options.from) {
+        qb.andWhere('expense.date >= :from', { from: options.from });
+      }
+      if (options.to) {
+        qb.andWhere('expense.date <= :to', { to: options.to });
+      }
+    } else {
+      // Employee: solo egresos de hoy creados por empleados.
+      const today = businessDateToday();
+      qb.andWhere('expense.date = :today', { today })
+        .andWhere('creator.role = :role', { role: UserRole.EMPLOYEE });
+    }
+
+    return qb.getMany();
   }
 
   /** Busca un egreso por UUID. Lanza 404 si no existe o fue eliminado. */
   async findOne(id: string): Promise<Expense> {
-    const expense = await this.expenseRepo.findOne({ where: { id } });
+    const expense = await this.expenseRepo.findOne({
+      where: { id },
+      relations: ['createdByUser'],
+    });
     if (!expense) {
       throw new NotFoundException(`Egreso con id "${id}" no encontrado.`);
     }
@@ -75,7 +136,6 @@ export class ExpensesService {
     const expense = await this.findOne(id);
     Object.assign(expense, dto);
 
-    // Si se cambia el método de pago a Efectivo, exige caja abierta y re-vincula
     if (dto.paymentMethod === PaymentMethod.CASH && !expense.cashSessionId) {
       const sessionData = await this.cashRegisterService.getCurrentSession();
       if (!sessionData.session || !sessionData.isOpen) {
@@ -87,7 +147,6 @@ export class ExpensesService {
       expense.cashSessionId = sessionData.session.id;
     }
 
-    // Si se cambia a método no-efectivo, desvincula la sesión de caja
     if (dto.paymentMethod && dto.paymentMethod !== PaymentMethod.CASH) {
       expense.cashSessionId = null;
     }
@@ -95,7 +154,7 @@ export class ExpensesService {
     return this.expenseRepo.save(expense);
   }
 
-  /** Soft delete: marca `deletedAt` sin eliminar el registro físicamente. */
+  /** Soft delete. */
   async remove(id: string): Promise<void> {
     const expense = await this.findOne(id);
     await this.expenseRepo.softRemove(expense);

@@ -9,6 +9,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { CashSession } from '../../cash-register/entities/cash-session.entity';
+import { User } from '../../users/entities/user.entity';
 
 /** Métodos de pago admitidos para un egreso. */
 export enum PaymentMethod {
@@ -64,6 +65,14 @@ export class Expense {
 
   @Column({ name: 'cash_session_id', type: 'uuid', nullable: true })
   cashSessionId: string | null;
+
+  /** Usuario que registró el egreso (para auditoría y RBAC). */
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL', eager: false })
+  @JoinColumn({ name: 'created_by_user_id' })
+  createdByUser: User | null;
+
+  @Column({ name: 'created_by_user_id', type: 'uuid', nullable: true })
+  createdByUserId: string | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
