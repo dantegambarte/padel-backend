@@ -70,6 +70,22 @@ export class CashRegisterController {
   }
 
   /**
+   * GET /api/v1/cash/check-pendings
+   *
+   * Devuelve la cantidad de turnos 'playing' y ventas sin cobrar de la jornada actual.
+   * El frontend lo usa para mostrar un aviso antes del arqueo de cierre.
+   */
+  @Get('check-pendings')
+  @ApiOperation({ summary: 'Verificar pendientes antes del cierre de turno' })
+  @ApiResponse({
+    status: 200,
+    description: '{ pendingBookings: number, unpaidSales: number }',
+  })
+  checkPendings() {
+    return this.cashRegisterService.checkPendings();
+  }
+
+  /**
    * GET /api/v1/cash/sessions/suggestion
    *
    * Devuelve el efectivo físico contado en el último turno cerrado,
