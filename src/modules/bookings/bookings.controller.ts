@@ -60,6 +60,31 @@ export class BookingsController {
   }
 
   /**
+   * POST /api/v1/bookings/migration/backfill-shift-names
+   *
+   * Backfill de una sola ejecución: calcula y rellena `appliedShiftName`
+   * en todas las reservas históricas donde el campo sea NULL.
+   * Es idempotente — puede ejecutarse más de una vez sin efectos secundarios.
+   *
+   * Acceso: solo Admin.
+   */
+  @Post('migration/backfill-shift-names')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: '[Admin] Backfill de nombres de franja horaria',
+    description:
+      'Calcula y persiste appliedShiftName en todas las reservas con valor NULL. ' +
+      'Operación idempotente de una sola ejecución. Solo administradores.',
+  })
+  @ApiResponse({ status: 200, description: '{ updated: number }' })
+  @ApiResponse({ status: 403, description: 'Solo administradores.' })
+  backfillShiftNames() {
+    return this.bookingsService.backfillShiftNames();
+  }
+
+  /**
    * GET /api/v1/bookings/:id
    * Detalle de un turno específico (para el modal de edición).
    */

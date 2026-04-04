@@ -87,6 +87,15 @@ export class Booking {
   priceType: PriceType;
 
   /**
+   * Nombre de la franja horaria aplicada al calcular el precio (ej. 'Turno Tarde').
+   * Se persiste como snapshot en el momento de la reserva para que cambios futuros
+   * en las franjas no afecten la etiqueta mostrada en el modal de cobro.
+   * null para reservas históricas creadas antes de esta columna.
+   */
+  @Column({ name: 'applied_shift_name', type: 'varchar', length: 100, nullable: true, default: null })
+  appliedShiftName: string | null;
+
+  /**
    * Precio de la cancha al momento de la reserva.
    * Se guarda como snapshot para que cambios futuros en configuración
    * no afecten reservas históricas.

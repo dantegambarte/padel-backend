@@ -8,7 +8,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Repository } from 'typeorm';
 
 import { Booking, BookingStatus, PriceType } from './entities/booking.entity';
 import { BookingItem } from './entities/booking-item.entity';
@@ -144,7 +144,7 @@ export class BookingsService {
 
       const priceType = dto.priceType ?? PriceType.STANDARD;
       const duration  = dto.durationMinutes ?? 60;
-      const priceAmount = await this.calculateDynamicPrice(
+      const { amount: priceAmount, shiftName: appliedShiftName } = await this.calculateDynamicPrice(
         dto.date,
         dto.hour,
         priceType === PriceType.PROFESSOR,
@@ -162,6 +162,7 @@ export class BookingsService {
         status: BookingStatus.BOOKED,
         priceType,
         priceAmount,
+        appliedShiftName,
         durationMinutes: dto.durationMinutes ?? 60,
         createdByUserId: user.id,
       });
@@ -316,7 +317,7 @@ export class BookingsService {
         }
 
         // Recalcular precio dinámico para la nueva fecha/hora/cancha.
-        const newPriceAmount = await this.calculateDynamicPrice(
+        const { amount: newPriceAmount, shiftName: newShiftName } = await this.calculateDynamicPrice(
           targetDate,
           targetHour,
           booking.priceType === PriceType.PROFESSOR,
@@ -328,6 +329,7 @@ export class BookingsService {
           date: targetDate,
           hour: targetHour,
           priceAmount: newPriceAmount,
+          appliedShiftName: newShiftName,
         } as any;
       }
 
@@ -675,7 +677,7 @@ export class BookingsService {
     isTeacherIncluded: boolean,
     duration: number,
     queryRunner: any,
-  ): Promise<number> {
+  ): Promise<{ amount: number; shiftName: string }> {
     // Derivar día de la semana en hora local (sin depender de TZ del servidor).
     const [year, month, day] = date.split('-').map(Number);
     const dayOfWeek = new Date(year, month - 1, day).getDay(); // 0=Dom … 6=Sáb
@@ -712,14 +714,86 @@ export class BookingsService {
       this.logger.log(
         `Precio dinámico: franja "${matching.name}" → $${base}${isTeacherIncluded ? ` + $${extra} (profesor)` : ''}`,
       );
-      return base + extra;
+      return { amount: base + extra, shiftName: matching.name };
     }
 
     // Sin franja configurada: el precio es 0 (el operador deberá ajustarlo manualmente).
     this.logger.warn(
       `Sin franja horaria para ${date} ${hour}hs (día ${dayOfWeek}). Precio = 0.`,
     );
-    return 0;
+    return { amount: 0, shiftName: 'Estándar' };
+  }
+
+  /**
+   * Backfill de `appliedShiftName` para reservas históricas (appliedShiftName IS NULL).
+   *
+   * Carga todos los shifts activos una sola vez, resuelve el nombre de franja para
+   * cada reserva y agrupa los IDs por nombre para emitir un UPDATE … WHERE id IN (…)
+   * por grupo — minimizando el número de queries a la DB.
+   *
+   * Seguro de ejecutar más de una vez: solo toca filas con appliedShiftName = NULL.
+   */
+  async backfillShiftNames(): Promise<{ updated: number }> {
+    const bookings = await this.bookingRepo.find({
+      where: { appliedShiftName: IsNull() },
+      select: ['id', 'date', 'hour', 'durationMinutes'],
+    });
+
+    if (!bookings.length) {
+      this.logger.log('Backfill shift names: sin registros con appliedShiftName = null.');
+      return { updated: 0 };
+    }
+
+    const shifts = await this.dataSource
+      .getRepository(PricingShift)
+      .find({ where: { isActive: true } });
+
+    // Agrupar IDs por nombre de franja para hacer un UPDATE por grupo.
+    const groups = new Map<string, string[]>();
+    for (const booking of bookings) {
+      const name = this.resolveShiftName(booking.date, booking.hour, shifts);
+      if (!groups.has(name)) groups.set(name, []);
+      groups.get(name)!.push(booking.id);
+    }
+
+    let updated = 0;
+    for (const [shiftName, ids] of groups) {
+      const result = await this.bookingRepo.update(
+        { id: In(ids) },
+        { appliedShiftName: shiftName },
+      );
+      updated += result.affected ?? 0;
+      this.logger.log(`Backfill: "${shiftName}" → ${result.affected} registro(s) actualizados.`);
+    }
+
+    this.logger.log(`Backfill completado. Total actualizados: ${updated}.`);
+    return { updated };
+  }
+
+  /**
+   * Resuelve el nombre de la franja horaria para una fecha/hora dada,
+   * usando la lista de shifts ya cargada. No realiza queries a la DB.
+   * Retorna 'Estándar' si ninguna franja cubre el slot.
+   */
+  private resolveShiftName(date: string, hour: string, shifts: PricingShift[]): string {
+    const [year, month, day] = date.split('-').map(Number);
+    const dayOfWeek = new Date(year, month - 1, day).getDay();
+    const [h, m] = hour.split(':').map(Number);
+    const bookingMin = h * 60 + m;
+
+    const matching = shifts.find((s) => {
+      const days = (s.daysOfWeek as number[]).map(Number);
+      if (!days.includes(dayOfWeek)) return false;
+      const [sh, sm] = s.startTime.split(':').map(Number);
+      const [eh, em] = s.endTime.split(':').map(Number);
+      const startMin = sh * 60 + sm;
+      const endMin   = eh * 60 + em;
+      return startMin <= endMin
+        ? bookingMin >= startMin && bookingMin < endMin
+        : bookingMin >= startMin || bookingMin < endMin;
+    });
+
+    return matching?.name ?? 'Estándar';
   }
 
   /** Convierte errores de base de datos en excepciones HTTP apropiadas. */
