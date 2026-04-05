@@ -25,6 +25,7 @@ Sistema integral de gestión para canchas de pádel. Construido con **NestJS**, 
    - [Reports](#reports)
    - [Search (Búsqueda global)](#search-búsqueda-global)
    - [Reminders (Recordatorios)](#reminders-recordatorios)
+   - [Expenses (Egresos)](#expenses-egresos)
    - [System Config](#system-config)
 7. [Modelo de datos](#modelo-de-datos)
 8. [Seguridad y autenticación](#seguridad-y-autenticación)
@@ -129,7 +130,9 @@ src/
 │   │   ├── 1000000000010-AddIsConfirmedToBookings.ts
 │   │   ├── 1000000000011-CreateTeachers.ts
 │   │   ├── 1000000000012-AddIconToProducts.ts
-│   │   └── 1000000000013-BackfillProductIcons.ts
+│   │   ├── 1000000000013-BackfillProductIcons.ts
+│   │   ├── 1000000000014-CreateDailyClosures.ts
+│   │   └── 1000000000015-RecalcSessionDifferences.ts
 │   └── seed.ts                    # Seed inicial (admin + config)
 └── modules/
     ├── auth/
@@ -145,6 +148,7 @@ src/
     ├── reports/
     ├── search/
     ├── reminders/
+    ├── expenses/
     └── system-config/
 ```
 
@@ -603,6 +607,13 @@ POST /cash/open  (empleado declara fondo inicial)
 
 - `CashSession` — sesión diaria con fondo inicial, totales, diferencia de caja y notas de cierre
 - `Transaction` — registro polimórfico de cada movimiento (tipo: `BOOKING` | `SALE`)
+- `DailyClosureRecord` — registro único por fecha comercial que actúa como bloqueo para evitar dobles cierres de jornada (tabla `daily_closures`, campo `date` con constraint UNIQUE)
+
+**Cierre de Jornada (`DailyClosureRecord`):**
+
+- Se persiste una sola vez por fecha comercial al confirmar el "Cierre de Jornada"
+- Impide que se ejecute el cierre dos veces en el mismo día comercial
+- Incluye el campo `closedAt` (timestamptz) con el momento exacto del cierre
 
 **Respuesta de `/cash/current`:**
 
@@ -706,6 +717,40 @@ Recordatorios de turnos fijos para notificaciones por WhatsApp.
 
 ---
 
+### Expenses (Egresos)
+
+Registro de egresos de caja. **ADMIN** y **EMPLOYEE** pueden crear y consultar; solo **ADMIN** puede modificar y eliminar.
+
+| Método | Endpoint                        | Acceso          | Descripción                            |
+| ------ | ------------------------------- | --------------- | -------------------------------------- |
+| GET    | `/expenses?from=&to=`           | Admin, Employee | Listar egresos (con filtro de fechas)  |
+| GET    | `/expenses/:id`                 | Admin, Employee | Detalle de egreso                      |
+| POST   | `/expenses`                     | Admin, Employee | Registrar egreso                       |
+| PATCH  | `/expenses/:id`                 | Admin           | Actualizar egreso                      |
+| DELETE | `/expenses/:id`                 | Admin           | Eliminar egreso (soft delete, HTTP 204)|
+
+**Campos de `Expense`:**
+
+| Campo           | Tipo                    | Descripción                                                      |
+| --------------- | ----------------------- | ---------------------------------------------------------------- |
+| `amount`        | numeric(10,2)           | Monto del egreso (positivo)                                      |
+| `description`   | varchar 255             | Descripción del gasto                                            |
+| `category`      | enum `ExpenseCategory`  | `Insumos` \| `Mantenimiento` \| `Sueldos` \| `Servicios` \| `Otro` |
+| `paymentMethod` | enum `PaymentMethod`    | `Efectivo` \| `Transferencia` \| `Tarjeta` \| `Otro`            |
+| `date`          | date "YYYY-MM-DD"       | Fecha comercial del egreso                                       |
+| `cashSessionId` | UUID (nullable)         | FK a la sesión de caja activa (solo cuando `paymentMethod = Efectivo`) |
+| `createdByUserId`| UUID (nullable)        | FK al usuario que registró el egreso (auditoría)                 |
+
+**Reglas de negocio:**
+
+- Soft delete: `deletedAt` (TypeORM `@DeleteDateColumn`), nunca eliminación física
+- Los egresos en efectivo se vinculan automáticamente a la sesión de caja abierta
+- Los egresos en efectivo impactan el arqueo del cierre Z (se descuentan del efectivo esperado)
+- La fórmula de diferencia de caja usa `GREATEST(0, ...)` para evitar valores negativos en `cash_expected` cuando los egresos superan los ingresos en efectivo
+- `PATCH` y `DELETE` solo para ADMIN; employees pueden crear y leer
+
+---
+
 ### System Config
 
 Configuración global del sistema. Solo **ADMIN**.
@@ -742,7 +787,10 @@ User ──< Booking >── Court
   │      └──< SaleItem >── Product
   │
   ├──< CashSession (opened/closed)
-  │         └──< Transaction
+  │         ├──< Transaction
+  │         └──< Expense (solo paymentMethod=Efectivo)
+  │
+  ├──< Expense (fecha comercial, categoría, método de pago)
   │
   └──< FixedBooking >── Court
              └── teacherId ──> Teacher
@@ -763,6 +811,8 @@ PricingShift  (tabla de lookup, sin FK a otras entidades)
 | Sale → SaleItem           | OneToMany            | Productos de una venta directa     |
 | CashSession → Transaction | OneToMany            | Todos los movimientos del día      |
 | Product → ProductCategory | ManyToOne            | Categorización del inventario      |
+| Expense → CashSession     | ManyToOne (nullable) | Egreso vinculado a caja (solo efectivo) |
+| Expense → User            | ManyToOne (nullable) | Usuario que registró el egreso     |
 
 ---
 
@@ -854,7 +904,17 @@ Al crear un `FixedBooking`, el servicio genera automáticamente reservas individ
 
 Las `PricingShift` reemplazan el sistema de precio único por tipo. El precio de una reserva se determina en base al día de la semana y la hora del turno, con soporte para duraciones de 30, 60, 90 y 120 minutos. Si hay profesor, se aplica el `teacherPricePerHour` prorrateado.
 
-### 11. Categorías de alquiler (isRental)
+### 11. Arqueo de caja con tope cero en egresos
+
+El `cash_expected` al cierre se calcula como:
+
+```
+cash_expected = GREATEST(0, initial_balance + cash_income - cash_expense_total)
+```
+
+El `GREATEST(0, ...)` evita que `cash_expected` sea negativo cuando los egresos en efectivo superan los ingresos del día, lo que producía diferencias absurdas (ej. `+360.000`). Los registros históricos se corrigieron via la migración `1000000000015-RecalcSessionDifferences`.
+
+### 12. Categorías de alquiler (isRental)
 
 Las categorías de producto con `isRental = true` permiten registrar ventas de alquileres (paletas, pelotas, etc.) sin descontar stock. El flag se define a nivel de categoría, no de producto individual.
 
