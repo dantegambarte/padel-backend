@@ -60,6 +60,27 @@ export class TeachersController {
     return this.teachersSvc.findAll(includeInactive);
   }
 
+  /**
+   * GET /teachers/:id/report?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
+   * Genera el reporte de liquidación de un profesor. Solo admin.
+   * Nota: esta ruta debe ir ANTES de `:id` para que el router no interprete
+   * "report" como un UUID.
+   */
+  @Get(':id/report')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Reporte de liquidación de un profesor (admin)' })
+  @ApiParam({ name: 'id', type: 'string', format: 'uuid' })
+  @ApiQuery({ name: 'startDate', required: true, type: String, example: '2025-01-01' })
+  @ApiQuery({ name: 'endDate',   required: true, type: String, example: '2025-01-31' })
+  getReport(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('startDate') startDate: string,
+    @Query('endDate')   endDate: string,
+  ) {
+    return this.teachersSvc.getReport(id, startDate, endDate);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Obtener un profesor por id' })
   @ApiParam({ name: 'id', type: 'string', format: 'uuid' })

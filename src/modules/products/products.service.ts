@@ -48,7 +48,9 @@ export class ProductsService {
     });
 
     if (query.lowStock) {
-      return products.filter((p) => p.stock < p.minStock);
+      return products.filter(
+        (p) => p.minStock > 0 && p.stock <= p.minStock && !p.category?.isRental,
+      );
     }
 
     return products;
@@ -69,7 +71,9 @@ export class ProductsService {
       .createQueryBuilder('product')
       .leftJoinAndSelect('product.category', 'category')
       .where('product.isActive = true')
-      .andWhere('product.stock < product.minStock')
+      .andWhere('product.minStock > 0')
+      .andWhere('product.stock <= product.minStock')
+      .andWhere('(category.id IS NULL OR category.is_rental = false)')
       .orderBy('product.stock', 'ASC')
       .getMany();
   }
@@ -197,7 +201,9 @@ export class ProductsService {
       this.productRepo.count({ where: { isActive: true, isFeatured: true } }),
       this.productRepo
         .createQueryBuilder('p')
-        .where('p.isActive = true AND p.stock < p.minStock')
+        .leftJoin('p.category', 'cat')
+        .where('p.isActive = true AND p.minStock > 0 AND p.stock <= p.minStock')
+        .andWhere('(cat.id IS NULL OR cat.is_rental = false)')
         .getCount(),
       this.productRepo
         .createQueryBuilder('p')

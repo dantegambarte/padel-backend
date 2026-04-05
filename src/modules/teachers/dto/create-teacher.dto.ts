@@ -2,7 +2,6 @@ import {
   IsString,
   IsNotEmpty,
   IsOptional,
-  IsEmail,
   MaxLength,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -20,9 +19,4 @@ export class CreateTeacherDto {
   @MaxLength(30)
   phoneNumber?: string;
 
-  @ApiPropertyOptional({ example: 'marcos@email.com' })
-  @IsOptional()
-  @IsEmail()
-  @MaxLength(150)
-  email?: string;
 }

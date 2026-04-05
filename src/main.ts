@@ -1,14 +1,32 @@
 import { NestFactory, Reflector } from '@nestjs/core';
 import { ValidationPipe, ClassSerializerInterceptor } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // ── Cabeceras HTTP seguras ──────────────────────────
+  app.use(helmet());
+
   // ── CORS ────────────────────────────────────────────
+  const allowedOrigins: string[] = (
+    process.env.ALLOWED_ORIGINS || 'http://localhost:4200'
+  )
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+
   app.enableCors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:4200',
+    origin: (origin, callback) => {
+      // Permitir peticiones sin origin (ej. curl, Postman en dev)
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`Origin '${origin}' not allowed by CORS`));
+      }
+    },
     credentials: true,
   });
 
