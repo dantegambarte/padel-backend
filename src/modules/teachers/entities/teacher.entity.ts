@@ -21,9 +21,6 @@ export class Teacher {
   @Column({ name: 'phone_number', type: 'varchar', length: 30, nullable: true })
   phoneNumber: string | null;
 
-  @Column({ type: 'varchar', length: 150, nullable: true })
-  email: string | null;
-
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean;
 
