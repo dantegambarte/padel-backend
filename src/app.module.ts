@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard } from '@nestjs/throttler';
 
 import { databaseConfig } from './config/database.config';
 import { envValidationSchema } from './config/env.validation';
@@ -92,6 +93,11 @@ import { SearchModule } from './modules/search/search.module';
     SearchModule,
   ],
   providers: [
+    // Guard global de rate limiting
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
     // Filtro de excepciones HTTP global
     {
       provide: APP_FILTER,
