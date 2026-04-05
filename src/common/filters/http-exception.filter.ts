@@ -9,8 +9,11 @@ import {
 import { Request, Response } from 'express';
 
 /**
- * Filtro global de excepciones HTTP.
- * Transforma todos los errores a una estructura de respuesta uniforme:
+ * Filtro global de excepciones.
+ * Captura TODOS los errores (HttpException + errores no controlados como DB errors).
+ *
+ * En producción nunca expone el stack trace al cliente.
+ * Estructura de respuesta uniforme:
  *
  * {
  *   statusCode: 400,
@@ -19,33 +22,43 @@ import { Request, Response } from 'express';
  *   message: "Descripción del error"
  * }
  */
-@Catch(HttpException)
+@Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(HttpExceptionFilter.name);
 
-  catch(exception: HttpException, host: ArgumentsHost) {
+  catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
-    const status = exception.getStatus();
 
-    const exceptionResponse = exception.getResponse();
-    const isObject = typeof exceptionResponse === 'object' && exceptionResponse !== null;
+    let status: number;
+    let message: unknown;
+    let errorCode: string | undefined;
 
-    const message = isObject
-      ? (exceptionResponse as any).message || exception.message
-      : (exceptionResponse as string) || exception.message;
+    if (exception instanceof HttpException) {
+      status = exception.getStatus();
+      const exceptionResponse = exception.getResponse();
+      const isObject =
+        typeof exceptionResponse === 'object' && exceptionResponse !== null;
 
-    // Preservar errorCode si el servicio lo incluyó (ej. CAJA_CERRADA)
-    const errorCode: string | undefined = isObject
-      ? (exceptionResponse as any).errorCode
-      : undefined;
+      message = isObject
+        ? (exceptionResponse as any).message || exception.message
+        : (exceptionResponse as string) || exception.message;
 
-    // Log de errores de servidor (5xx)
+      errorCode = isObject
+        ? (exceptionResponse as any).errorCode
+        : undefined;
+    } else {
+      // Error no controlado (ej. fallo de BD, errores de TypeORM)
+      status = HttpStatus.INTERNAL_SERVER_ERROR;
+      message = 'Ha ocurrido un error interno. Por favor, contacte al administrador.';
+    }
+
+    // Siempre loguear en servidor con stack completo
     if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
       this.logger.error(
-        `[${request.method}] ${request.url} → ${status} ${JSON.stringify(message)}`,
-        exception.stack,
+        `[${request.method}] ${request.url} → ${status}`,
+        exception instanceof Error ? exception.stack : String(exception),
       );
     }
 
