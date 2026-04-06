@@ -5,3 +5,6 @@
 
 # docs: add brief spanish jsdoc to all methods and remove verbose comments
 0e08e71c38835bab15ce6e2e46deaf12a53aae28
+
+# docs(search): agrega JSDoc al método search en SearchService
+347a44cf0cda319c6c4e1d63541cfed97d7a635d

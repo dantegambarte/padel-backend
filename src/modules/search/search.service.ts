@@ -21,8 +21,8 @@ export interface SearchResponse {
 }
 
 const MAX_PRODUCTS = 6;
-const MAX_BOOKINGS = 3;   // Limitado para evitar saturar con turnos fijos recurrentes.
-const MAX_SALES    = 6;
+const MAX_BOOKINGS = 3;
+const MAX_SALES = 6;
 
 /** Fecha de hoy en zona horaria Argentina (YYYY-MM-DD). */
 function todayArgentina(): string {
@@ -37,11 +37,10 @@ function todayArgentina(): string {
  */
 function formatBookingDate(dateStr: string): string {
   const [year, month, day] = dateStr.split('-').map(Number);
-  // Construir la fecha como local (sin timezone shift) usando UTC noon.
   const d = new Date(Date.UTC(year, month - 1, day, 12));
   const weekday = d.toLocaleDateString('es-AR', { weekday: 'short', timeZone: 'UTC' });
-  const dayStr  = String(day).padStart(2, '0');
-  const monStr  = String(month).padStart(2, '0');
+  const dayStr = String(day).padStart(2, '0');
+  const monStr = String(month).padStart(2, '0');
   return `${weekday.charAt(0).toUpperCase()}${weekday.slice(1, 3)}, ${dayStr}/${monStr}/${year}`;
 }
 
@@ -58,6 +57,16 @@ export class SearchService {
     private readonly saleRepo: Repository<Sale>,
   ) {}
 
+  /**
+   * Busca productos, reservas y ventas por término de búsqueda.
+   * Realiza búsqueda case-insensitive en:
+   * - Productos activos por nombre
+   * - Reservas futuras no canceladas por nombre de cliente
+   * - Ventas por nombre de cliente
+   *
+   * @param q - Término de búsqueda
+   * @returns Objeto con arrays de resultados por categoría
+   */
   async search(q: string): Promise<SearchResponse> {
     const term = q.trim();
     if (!term) return { products: [], bookings: [], sales: [] };
@@ -65,7 +74,6 @@ export class SearchService {
     const today = todayArgentina();
 
     const [products, rawBookings, sales] = await Promise.all([
-      // ── Productos de la cantina ─────────────────────────────────────────
       this.productRepo.find({
         where: { name: ILike(`%${term}%`), isActive: true },
         relations: ['category'],
@@ -73,9 +81,6 @@ export class SearchService {
         take: MAX_PRODUCTS,
       }),
 
-      // ── Reservas de hoy en adelante (no canceladas) ─────────────────────
-      // Traemos más filas de las que necesitamos para poder deduplicar por
-      // clientName y mostrar solo la próxima instancia de cada turno fijo.
       this.bookingRepo
         .createQueryBuilder('booking')
         .leftJoinAndSelect('booking.court', 'court')
@@ -89,7 +94,6 @@ export class SearchService {
         .take(MAX_BOOKINGS * 10)
         .getMany(),
 
-      // ── Ventas POS (historial completo, con customerName) ───────────────
       this.saleRepo
         .createQueryBuilder('sale')
         .where('sale.customerName ILIKE :term', { term: `%${term}%` })
@@ -98,7 +102,6 @@ export class SearchService {
         .getMany(),
     ]);
 
-    // Deduplicar reservas: solo la próxima instancia por clientName.
     const seenClients = new Set<string>();
     const bookings: Booking[] = [];
     for (const b of rawBookings) {
