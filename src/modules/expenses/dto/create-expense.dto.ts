@@ -1,11 +1,4 @@
-import {
-  IsDateString,
-  IsEnum,
-  IsNumber,
-  IsString,
-  MaxLength,
-  Min,
-} from 'class-validator';
+import { IsDateString, IsEnum, IsNumber, IsString, MaxLength, Min } from 'class-validator';
 import { ExpenseCategory, PaymentMethod } from '../entities/expense.entity';
 
 export class CreateExpenseDto {

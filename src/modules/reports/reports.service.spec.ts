@@ -27,8 +27,6 @@ describe('ReportsService', () => {
     jest.clearAllMocks();
   });
 
-  // ─── resolveDateRange (via getRevenue) ────────────────────────────────────
-
   describe('resolveDateRange (via getRevenue)', () => {
     it('usa dto.date como from y to cuando se especifica', async () => {
       dataSource.query.mockResolvedValue([]);
@@ -45,8 +43,6 @@ describe('ReportsService', () => {
       expect(call[1]).toContain('2025-06-30');
     });
   });
-
-  // ─── getRevenue ───────────────────────────────────────────────────────────
 
   describe('getRevenue', () => {
     it('retorna series de ingresos con period, bookings, sales y total', async () => {
@@ -68,13 +64,9 @@ describe('ReportsService', () => {
     });
   });
 
-  // ─── getPaymentMethods ────────────────────────────────────────────────────
-
   describe('getPaymentMethods', () => {
     it('calcula porcentajes correctamente', async () => {
-      dataSource.query.mockResolvedValue([
-        { cash_total: '75000', transfer_total: '25000' },
-      ]);
+      dataSource.query.mockResolvedValue([{ cash_total: '75000', transfer_total: '25000' }]);
 
       const result = await service.getPaymentMethods({ date: '2025-06-01' });
       expect(result.grandTotal).toBe(100000);
@@ -90,8 +82,6 @@ describe('ReportsService', () => {
     });
   });
 
-  // ─── getProductsRanking ───────────────────────────────────────────────────
-
   describe('getProductsRanking', () => {
     it('retorna productos con rank, qty y revenue', async () => {
       dataSource.query.mockResolvedValue([
@@ -105,8 +95,6 @@ describe('ReportsService', () => {
       expect(result[1].rank).toBe(2);
     });
   });
-
-  // ─── getTransactionsExport ────────────────────────────────────────────────
 
   describe('getTransactionsExport', () => {
     it('retorna filas planas listas para CSV', async () => {
@@ -130,8 +118,6 @@ describe('ReportsService', () => {
     });
   });
 
-  // ─── getSummary ───────────────────────────────────────────────────────────
-
   describe('getSummary', () => {
     it('retorna los totales del dashboard parseados', async () => {
       dataSource.query.mockResolvedValue([
@@ -151,8 +137,6 @@ describe('ReportsService', () => {
       expect(result.transactionCount).toBe(42);
     });
   });
-
-  // ─── getKpis ──────────────────────────────────────────────────────────────
 
   describe('getKpis', () => {
     it('delega a CashRegisterService.getActiveSessionKpis y mapea el resultado', async () => {
@@ -209,8 +193,6 @@ describe('ReportsService', () => {
       expect(result.occupationRate).toBe(0);
     });
   });
-
-  // ─── getRevenueTrend ──────────────────────────────────────────────────────
 
   describe('getRevenueTrend', () => {
     it('retorna array con fecha, cash, transfer y total', async () => {

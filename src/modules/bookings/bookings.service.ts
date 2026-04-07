@@ -82,17 +82,17 @@ export class BookingsService {
    * Usa advisory lock de PostgreSQL + constraint UNIQUE para prevenir overbooking.
    */
   async create(dto: CreateBookingDto, user: User): Promise<Booking> {
-    // If sourceId is provided, merge data from the source booking (duplicate mode).
     if (dto.sourceId) {
       const source = await this.findOne(dto.sourceId);
       if (source.status === BookingStatus.COMPLETED) {
         throw new BadRequestException('No se permite duplicar un turno que ya ha finalizado.');
       }
-      if (!dto.clientName)                dto.clientName      = source.clientName;
-      if (!dto.priceType)                 dto.priceType       = source.priceType as PriceType;
+      if (!dto.clientName) dto.clientName = source.clientName;
+      if (!dto.priceType) dto.priceType = source.priceType as PriceType;
       if (dto.durationMinutes === undefined) dto.durationMinutes = source.durationMinutes;
-      if (dto.items === undefined)        dto.items           = source.items.map((i) => ({ productId: i.productId, quantity: i.quantity }));
-      if (dto.amountCash === undefined)   dto.amountCash      = 0;
+      if (dto.items === undefined)
+        dto.items = source.items.map((i) => ({ productId: i.productId, quantity: i.quantity }));
+      if (dto.amountCash === undefined) dto.amountCash = 0;
       if (dto.amountTransfer === undefined) dto.amountTransfer = 0;
     }
 
@@ -143,7 +143,7 @@ export class BookingsService {
       }
 
       const priceType = dto.priceType ?? PriceType.STANDARD;
-      const duration  = dto.durationMinutes ?? 60;
+      const duration = dto.durationMinutes ?? 60;
       const { amount: priceAmount, shiftName: appliedShiftName } = await this.calculateDynamicPrice(
         dto.date,
         dto.hour,
@@ -193,10 +193,7 @@ export class BookingsService {
 
       const totalPaid = (dto.amountCash ?? 0) + (dto.amountTransfer ?? 0);
       if (totalPaid > 0) {
-        const session = await this.cashRegisterService.getActiveSessionOrFail(
-          queryRunner,
-          user.id,
-        );
+        const session = await this.cashRegisterService.getActiveSessionOrFail(queryRunner, user.id);
 
         await this.cashRegisterService.registerTransaction(queryRunner, {
           cashSessionId: session.id,
@@ -261,7 +258,6 @@ export class BookingsService {
         this.validateStatusTransition(booking.status, dto.status, user);
       }
 
-      // — RESCHEDULE (move) —
       let rescheduleFields: { courtId?: string; date?: string; hour?: string } | null = null;
       if (dto.courtId !== undefined || dto.date !== undefined || dto.hour !== undefined) {
         if (booking.status === BookingStatus.COMPLETED) {
@@ -269,18 +265,13 @@ export class BookingsService {
             'No se puede mover o modificar la fecha de un turno que ya ha finalizado.',
           );
         }
-        if (
-          booking.status === BookingStatus.CANCELLED &&
-          user.role !== UserRole.ADMIN
-        ) {
-          throw new ForbiddenException(
-            'Solo los administradores pueden mover turnos cancelados.',
-          );
+        if (booking.status === BookingStatus.CANCELLED && user.role !== UserRole.ADMIN) {
+          throw new ForbiddenException('Solo los administradores pueden mover turnos cancelados.');
         }
 
         const targetCourtId = dto.courtId ?? booking.courtId;
-        const targetDate    = dto.date    ?? booking.date;
-        const targetHour    = dto.hour    ?? booking.hour;
+        const targetDate = dto.date ?? booking.date;
+        const targetHour = dto.hour ?? booking.hour;
 
         const court = await queryRunner.manager.findOne(Court, {
           where: { id: targetCourtId, isActive: true },
@@ -291,7 +282,7 @@ export class BookingsService {
 
         const [h, m] = targetHour.split(':').map(Number);
         const newStartMin = h * 60 + m;
-        const newEndMin   = newStartMin + booking.durationMinutes;
+        const newEndMin = newStartMin + booking.durationMinutes;
 
         const conflict = await queryRunner.manager
           .createQueryBuilder(Booking, 'b')
@@ -316,14 +307,14 @@ export class BookingsService {
           );
         }
 
-        // Recalcular precio dinámico para la nueva fecha/hora/cancha.
-        const { amount: newPriceAmount, shiftName: newShiftName } = await this.calculateDynamicPrice(
-          targetDate,
-          targetHour,
-          booking.priceType === PriceType.PROFESSOR,
-          booking.durationMinutes,
-          queryRunner,
-        );
+        const { amount: newPriceAmount, shiftName: newShiftName } =
+          await this.calculateDynamicPrice(
+            targetDate,
+            targetHour,
+            booking.priceType === PriceType.PROFESSOR,
+            booking.durationMinutes,
+            queryRunner,
+          );
         rescheduleFields = {
           courtId: targetCourtId,
           date: targetDate,
@@ -362,8 +353,6 @@ export class BookingsService {
       }
 
       if (dto.status === BookingStatus.COMPLETED) {
-        // Hard commit: descontar stock de productos físicos al finalizar el turno.
-        // Se ejecuta ANTES de validar el pago para fallar temprano si hay stock insuficiente.
         await this.commitStock(booking.id, queryRunner);
 
         const existingPayment = bookingWithRelations?.payment;
@@ -411,7 +400,6 @@ export class BookingsService {
           );
         }
 
-        // Registrar la diferencia de pago como movimiento en caja
         const deltaCash = newCash - prevCash;
         const deltaTransfer = newTransfer - prevTransfer;
 
@@ -532,15 +520,12 @@ export class BookingsService {
   ): Promise<{ productId: string; quantity: number; unitPrice: number }[]> {
     const result: { productId: string; quantity: number; unitPrice: number }[] = [];
 
-    // Agregar cantidades del mismo producto en un único entry para evitar
-    // que dos líneas del mismo productId pasen validación individual pero superen el stock combinado.
     const aggregated = new Map<string, number>();
     for (const item of items) {
       aggregated.set(item.productId, (aggregated.get(item.productId) ?? 0) + item.quantity);
     }
     const deduped = Array.from(aggregated, ([productId, quantity]) => ({ productId, quantity }));
 
-    // Mapa de cantidades previamente en la reserva (para ajustar la validación de stock)
     const existingQtyMap = new Map<string, number>();
     for (const ei of existingItems) {
       existingQtyMap.set(ei.productId, (existingQtyMap.get(ei.productId) ?? 0) + ei.quantity);
@@ -563,9 +548,6 @@ export class BookingsService {
         : null;
 
       if (!this.isCategoryRental(category?.name)) {
-        // Comparar la cantidad deseada directamente contra el stock real en DB.
-        // El stock no se decrementa hasta el hard commit (finalizar turno),
-        // así que product.stock refleja la disponibilidad real.
         if (product.stock < item.quantity) {
           throw new BadRequestException(
             `Stock insuficiente para "${product.name}". ` +
@@ -597,7 +579,6 @@ export class BookingsService {
     });
 
     for (const item of bookingWithItems?.items ?? []) {
-      // Lock sin joins para cumplir con las restricciones de PostgreSQL
       const product = await queryRunner.manager.findOne(Product, {
         where: { id: item.productId },
         lock: { mode: 'pessimistic_write' },
@@ -658,7 +639,6 @@ export class BookingsService {
   }
 
   /**
-  /**
    * Motor de Precios Dinámico.
    *
    * Busca la franja horaria activa que coincida con el día de la semana
@@ -678,9 +658,8 @@ export class BookingsService {
     duration: number,
     queryRunner: any,
   ): Promise<{ amount: number; shiftName: string }> {
-    // Derivar día de la semana en hora local (sin depender de TZ del servidor).
     const [year, month, day] = date.split('-').map(Number);
-    const dayOfWeek = new Date(year, month - 1, day).getDay(); // 0=Dom … 6=Sáb
+    const dayOfWeek = new Date(year, month - 1, day).getDay();
 
     const [h, m] = hour.split(':').map(Number);
     const bookingMin = h * 60 + m;
@@ -695,8 +674,7 @@ export class BookingsService {
       const [sh, sm] = s.startTime.split(':').map(Number);
       const [eh, em] = s.endTime.split(':').map(Number);
       const startMin = sh * 60 + sm;
-      const endMin   = eh * 60 + em;
-      // Franja normal (mismo día) vs. franja que cruza medianoche
+      const endMin = eh * 60 + em;
       return startMin <= endMin
         ? bookingMin >= startMin && bookingMin < endMin
         : bookingMin >= startMin || bookingMin < endMin;
@@ -705,10 +683,18 @@ export class BookingsService {
     if (matching) {
       let base: number;
       switch (duration) {
-        case 30:  base = Number(matching.price30min);  break;
-        case 90:  base = Number(matching.price90min);  break;
-        case 120: base = Number(matching.price120min); break;
-        default:  base = Number(matching.price60min);  break;
+        case 30:
+          base = Number(matching.price30min);
+          break;
+        case 90:
+          base = Number(matching.price90min);
+          break;
+        case 120:
+          base = Number(matching.price120min);
+          break;
+        default:
+          base = Number(matching.price60min);
+          break;
       }
       const extra = isTeacherIncluded ? Number(matching.teacherPricePerHour) * (duration / 60) : 0;
       this.logger.log(
@@ -717,10 +703,7 @@ export class BookingsService {
       return { amount: base + extra, shiftName: matching.name };
     }
 
-    // Sin franja configurada: el precio es 0 (el operador deberá ajustarlo manualmente).
-    this.logger.warn(
-      `Sin franja horaria para ${date} ${hour}hs (día ${dayOfWeek}). Precio = 0.`,
-    );
+    this.logger.warn(`Sin franja horaria para ${date} ${hour}hs (día ${dayOfWeek}). Precio = 0.`);
     return { amount: 0, shiftName: 'Estándar' };
   }
 
@@ -748,7 +731,6 @@ export class BookingsService {
       .getRepository(PricingShift)
       .find({ where: { isActive: true } });
 
-    // Agrupar IDs por nombre de franja para hacer un UPDATE por grupo.
     const groups = new Map<string, string[]>();
     for (const booking of bookings) {
       const name = this.resolveShiftName(booking.date, booking.hour, shifts);
@@ -787,7 +769,7 @@ export class BookingsService {
       const [sh, sm] = s.startTime.split(':').map(Number);
       const [eh, em] = s.endTime.split(':').map(Number);
       const startMin = sh * 60 + sm;
-      const endMin   = eh * 60 + em;
+      const endMin = eh * 60 + em;
       return startMin <= endMin
         ? bookingMin >= startMin && bookingMin < endMin
         : bookingMin >= startMin || bookingMin < endMin;

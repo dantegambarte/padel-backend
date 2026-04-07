@@ -45,7 +45,11 @@ export class CreatePricingShiftDto {
   @Max(6, { each: true })
   daysOfWeek: number[];
 
-  @ApiPropertyOptional({ example: 2000, description: 'Precio de alquiler para turnos de 30 min', default: 0 })
+  @ApiPropertyOptional({
+    example: 2000,
+    description: 'Precio de alquiler para turnos de 30 min',
+    default: 0,
+  })
   @IsOptional()
   @IsNumber({}, { message: 'price30min debe ser un número.' })
   @Min(0)
@@ -56,19 +60,31 @@ export class CreatePricingShiftDto {
   @Min(0)
   price60min: number;
 
-  @ApiPropertyOptional({ example: 5000, description: 'Precio de alquiler para turnos de 90 min', default: 0 })
+  @ApiPropertyOptional({
+    example: 5000,
+    description: 'Precio de alquiler para turnos de 90 min',
+    default: 0,
+  })
   @IsOptional()
   @IsNumber({}, { message: 'price90min debe ser un número.' })
   @Min(0)
   price90min?: number;
 
-  @ApiPropertyOptional({ example: 6500, description: 'Precio de alquiler para turnos de 120 min', default: 0 })
+  @ApiPropertyOptional({
+    example: 6500,
+    description: 'Precio de alquiler para turnos de 120 min',
+    default: 0,
+  })
   @IsOptional()
   @IsNumber({}, { message: 'price120min debe ser un número.' })
   @Min(0)
   price120min?: number;
 
-  @ApiPropertyOptional({ example: 4000, description: 'Precio por hora del profesor (se prorratea según duración)', default: 0 })
+  @ApiPropertyOptional({
+    example: 4000,
+    description: 'Precio por hora del profesor (se prorratea según duración)',
+    default: 0,
+  })
   @IsOptional()
   @IsNumber({}, { message: 'teacherPricePerHour debe ser un número.' })
   @Min(0)

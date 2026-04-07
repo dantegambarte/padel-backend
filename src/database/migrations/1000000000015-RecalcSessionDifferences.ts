@@ -39,8 +39,6 @@ export class RecalcSessionDifferences1000000000015 implements MigrationInterface
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    // Los valores originales eran incorrectos (bug): no existe un rollback significativo.
-    // Se marca como NULL para forzar revisión manual si alguna vez fuera necesario.
     await queryRunner.query(`
       UPDATE cash_sessions
       SET difference = NULL

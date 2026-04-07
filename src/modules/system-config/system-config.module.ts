@@ -8,6 +8,6 @@ import { SystemConfig } from './entities/system-config.entity';
   imports: [TypeOrmModule.forFeature([SystemConfig])],
   controllers: [SystemConfigController],
   providers: [SystemConfigService],
-  exports: [SystemConfigService], // exportado para que BookingsService lo use
+  exports: [SystemConfigService],
 })
 export class SystemConfigModule {}

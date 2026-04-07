@@ -11,13 +11,7 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import {
-  ApiTags,
-  ApiBearerAuth,
-  ApiOperation,
-  ApiResponse,
-  ApiParam,
-} from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 
 import { FixedBookingsService } from './fixed-bookings.service';
 import { CreateFixedBookingDto } from './dto/create-fixed-booking.dto';
@@ -82,7 +76,8 @@ export class FixedBookingsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({
     summary: 'Desactivar un turno fijo (solo admin)',
-    description: 'Soft-delete: marca el turno fijo como inactivo. Los turnos ya creados no se cancelan.',
+    description:
+      'Soft-delete: marca el turno fijo como inactivo. Los turnos ya creados no se cancelan.',
   })
   @ApiParam({ name: 'id', type: 'string', format: 'uuid' })
   @ApiResponse({ status: 204, description: 'Turno fijo desactivado.' })

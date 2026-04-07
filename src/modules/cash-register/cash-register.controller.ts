@@ -165,7 +165,10 @@ export class CashRegisterController {
       'Verifica que no exista ningún turno abierto y retorna el consolidado del día comercial actual. ' +
       'Falla con 409 si hay algún turno OPEN.',
   })
-  @ApiResponse({ status: 200, description: 'Consolidado del día. Todos los turnos están cerrados.' })
+  @ApiResponse({
+    status: 200,
+    description: 'Consolidado del día. Todos los turnos están cerrados.',
+  })
   @ApiResponse({ status: 409, description: 'Hay un turno abierto. Cerrarlo antes de proceder.' })
   @ApiResponse({ status: 403, description: 'Acceso denegado.' })
   closeDay() {
@@ -217,19 +220,20 @@ export class CashRegisterController {
   @Roles(UserRole.ADMIN)
   @ApiOperation({
     summary: 'Exportar Turno X a Excel',
-    description: 'Genera el archivo .xlsx de un turno específico con resumen y detalle de transacciones.',
+    description:
+      'Genera el archivo .xlsx de un turno específico con resumen y detalle de transacciones.',
   })
   @ApiParam({ name: 'id', description: 'UUID de la sesión de caja' })
   @ApiResponse({ status: 200, description: 'Archivo Excel generado correctamente.' })
   @ApiResponse({ status: 404, description: 'Sesión no encontrada.' })
   @ApiResponse({ status: 403, description: 'Solo administradores.' })
-  async exportSession(
-    @Param('id') id: string,
-    @Res() res: Response,
-  ): Promise<void> {
+  async exportSession(@Param('id') id: string, @Res() res: Response): Promise<void> {
     const buffer = await this.cashRegisterService.generateSessionExcel(id);
     const filename = `Cierre_Turno_X_${id.substring(0, 8)}.xlsx`;
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Length', buffer.length);
     res.end(buffer);
@@ -254,16 +258,16 @@ export class CashRegisterController {
   @ApiResponse({ status: 200, description: 'Archivo Excel generado correctamente.' })
   @ApiResponse({ status: 400, description: 'Formato de fecha inválido.' })
   @ApiResponse({ status: 403, description: 'Solo administradores.' })
-  async exportDaily(
-    @Query('date') date: string,
-    @Res() res: Response,
-  ): Promise<void> {
+  async exportDaily(@Query('date') date: string, @Res() res: Response): Promise<void> {
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       throw new BadRequestException('El parámetro date debe tener formato YYYY-MM-DD.');
     }
     const buffer = await this.cashRegisterService.generateDailyExcel(date);
     const filename = `Cierre_Jornada_Z_${date}.xlsx`;
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Length', buffer.length);
     res.end(buffer);

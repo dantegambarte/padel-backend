@@ -8,7 +8,6 @@ export class CreateTeachers1000000000011 implements MigrationInterface {
   name = 'CreateTeachers1000000000011';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // ── Tabla teachers ─────────────────────────────────────────────
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS "teachers" (
         "id"           UUID         NOT NULL DEFAULT gen_random_uuid(),
@@ -22,7 +21,6 @@ export class CreateTeachers1000000000011 implements MigrationInterface {
       );
     `);
 
-    // ── FK en bookings ─────────────────────────────────────────────
     await queryRunner.query(`
       ALTER TABLE "bookings"
         ADD COLUMN IF NOT EXISTS "teacher_id" UUID;
@@ -41,7 +39,6 @@ export class CreateTeachers1000000000011 implements MigrationInterface {
         WHERE "teacher_id" IS NOT NULL;
     `);
 
-    // ── FK en fixed_bookings ───────────────────────────────────────
     await queryRunner.query(`
       ALTER TABLE "fixed_bookings"
         ADD COLUMN IF NOT EXISTS "teacher_id" UUID;

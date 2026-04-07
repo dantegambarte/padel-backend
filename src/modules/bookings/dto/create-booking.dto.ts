@@ -110,7 +110,8 @@ export class CreateBookingDto {
 
   @ApiPropertyOptional({
     example: 'uuid-del-turno-origen',
-    description: 'ID del turno a duplicar. Cuando se envía, clientName/priceType/durationMinutes/items se heredan del turno origen.',
+    description:
+      'ID del turno a duplicar. Cuando se envía, clientName/priceType/durationMinutes/items se heredan del turno origen.',
   })
   @IsOptional()
   @IsUUID('4', { message: 'sourceId debe ser un UUID válido.' })

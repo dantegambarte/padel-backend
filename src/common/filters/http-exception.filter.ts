@@ -38,23 +38,18 @@ export class HttpExceptionFilter implements ExceptionFilter {
     if (exception instanceof HttpException) {
       status = exception.getStatus();
       const exceptionResponse = exception.getResponse();
-      const isObject =
-        typeof exceptionResponse === 'object' && exceptionResponse !== null;
+      const isObject = typeof exceptionResponse === 'object' && exceptionResponse !== null;
 
       message = isObject
         ? (exceptionResponse as any).message || exception.message
         : (exceptionResponse as string) || exception.message;
 
-      errorCode = isObject
-        ? (exceptionResponse as any).errorCode
-        : undefined;
+      errorCode = isObject ? (exceptionResponse as any).errorCode : undefined;
     } else {
-      // Error no controlado (ej. fallo de BD, errores de TypeORM)
       status = HttpStatus.INTERNAL_SERVER_ERROR;
       message = 'Ha ocurrido un error interno. Por favor, contacte al administrador.';
     }
 
-    // Siempre loguear en servidor con stack completo
     if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
       this.logger.error(
         `[${request.method}] ${request.url} → ${status}`,

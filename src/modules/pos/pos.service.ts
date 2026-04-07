@@ -148,7 +148,6 @@ export class PosService {
         );
       }
 
-      console.error('[POS] Error original en create():', error);
       this.logger.error(`ROLLBACK en venta POS: ${error.message}`, error.stack);
 
       this.handleDbError(error);
@@ -203,7 +202,6 @@ export class PosService {
     }[] = [];
 
     for (const item of items) {
-      // Paso 1: bloquear la fila del producto SIN joins (FOR UPDATE + LEFT JOIN no es válido en PG)
       const product = await queryRunner.manager.findOne(Product, {
         where: { id: item.productId, isActive: true },
         lock: { mode: 'pessimistic_write' },
@@ -216,7 +214,6 @@ export class PosService {
         );
       }
 
-      // Paso 2: cargar la categoría sin lock solo para el chequeo de alquiler
       const category = product.categoryId
         ? await queryRunner.manager.findOne(ProductCategory, {
             where: { id: product.categoryId },

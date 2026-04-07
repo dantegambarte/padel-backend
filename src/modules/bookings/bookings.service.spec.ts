@@ -125,8 +125,6 @@ describe('BookingsService', () => {
     cashRegisterService.registerTransaction.mockResolvedValue({});
   });
 
-  // ─── findOne ──────────────────────────────────────────────────────────────
-
   describe('findOne', () => {
     it('retorna el turno con relaciones', async () => {
       bookingRepo.findOne.mockResolvedValue(mockBooking());
@@ -139,8 +137,6 @@ describe('BookingsService', () => {
       await expect(service.findOne('missing')).rejects.toThrow(NotFoundException);
     });
   });
-
-  // ─── findByDate ───────────────────────────────────────────────────────────
 
   describe('findByDate', () => {
     it('retorna los turnos del día', async () => {
@@ -156,16 +152,18 @@ describe('BookingsService', () => {
     });
   });
 
-  // ─── cancel ───────────────────────────────────────────────────────────────
-
   describe('cancel', () => {
     it('lanza ForbiddenException si el usuario no es admin', async () => {
-      await expect(service.cancel('booking-uuid', mockEmployee())).rejects.toThrow(ForbiddenException);
+      await expect(service.cancel('booking-uuid', mockEmployee())).rejects.toThrow(
+        ForbiddenException,
+      );
     });
 
     it('lanza BadRequestException si el turno ya está cancelado', async () => {
       mockManager.findOne.mockResolvedValueOnce(mockBooking({ status: BookingStatus.CANCELLED }));
-      await expect(service.cancel('booking-uuid', mockAdmin())).rejects.toThrow(BadRequestException);
+      await expect(service.cancel('booking-uuid', mockAdmin())).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('lanza NotFoundException si el turno no existe', async () => {
@@ -187,8 +185,6 @@ describe('BookingsService', () => {
       expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
     });
   });
-
-  // ─── validateStatusTransition (via update) ────────────────────────────────
 
   describe('validateStatusTransition (via update)', () => {
     it('permite BOOKED → PLAYING', async () => {
@@ -214,7 +210,6 @@ describe('BookingsService', () => {
       mockManager.findOne
         .mockResolvedValueOnce(booking)
         .mockResolvedValueOnce({ ...booking, items: [], payment })
-        // commitStock inner findOne
         .mockResolvedValueOnce({ ...booking, items: [] });
       mockManager.update.mockResolvedValue({});
       bookingRepo.findOne.mockResolvedValue({ ...booking, status: BookingStatus.COMPLETED });
@@ -269,13 +264,6 @@ describe('BookingsService', () => {
     });
   });
 
-  // ─── reschedule via update() ─────────────────────────────────────────────
-  // update() hace 3 llamadas secuenciales a findOne antes del commit:
-  //   #1 manager.findOne(Booking, lock)               → booking actual
-  //   #2 manager.findOne(Booking, relations)           → bookingWithRelations
-  //   #3 manager.findOne(Court, ...)                   → cancha destino
-  // La ForbiddenException (empleado + terminal) se lanza entre #2 y #3.
-
   describe('reschedule via update (courtId/date/hour)', () => {
     const moveDto = { courtId: 'new-court-uuid', date: '2025-06-02', hour: '14:00' };
     const mockCourt = { id: 'new-court-uuid', name: 'Cancha 2', isActive: true };
@@ -283,9 +271,9 @@ describe('BookingsService', () => {
     it('mueve el turno al slot destino y hace commit', async () => {
       const booking = mockBooking({ status: BookingStatus.BOOKED });
       mockManager.findOne
-        .mockResolvedValueOnce(booking)                                      // #1 lock
-        .mockResolvedValueOnce({ ...booking, items: [], payment: null })     // #2 relations
-        .mockResolvedValueOnce(mockCourt);                                   // #3 Court
+        .mockResolvedValueOnce(booking)
+        .mockResolvedValueOnce({ ...booking, items: [], payment: null })
+        .mockResolvedValueOnce(mockCourt);
       mockQb.getOne.mockResolvedValue(null);
       mockManager.update.mockResolvedValue({});
       bookingRepo.findOne.mockResolvedValue({ ...booking, ...moveDto });
@@ -302,7 +290,9 @@ describe('BookingsService', () => {
 
     it('lanza NotFoundException si el turno no existe', async () => {
       mockManager.findOne.mockResolvedValueOnce(null);
-      await expect(service.update('missing', moveDto, mockAdmin())).rejects.toThrow(NotFoundException);
+      await expect(service.update('missing', moveDto, mockAdmin())).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('lanza NotFoundException si la cancha destino no existe o está inactiva', async () => {
@@ -310,8 +300,10 @@ describe('BookingsService', () => {
       mockManager.findOne
         .mockResolvedValueOnce(booking)
         .mockResolvedValueOnce({ ...booking, items: [], payment: null })
-        .mockResolvedValueOnce(null); // Court not found
-      await expect(service.update('booking-uuid', moveDto, mockAdmin())).rejects.toThrow(NotFoundException);
+        .mockResolvedValueOnce(null);
+      await expect(service.update('booking-uuid', moveDto, mockAdmin())).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('lanza ConflictException si el slot destino ya está ocupado', async () => {
@@ -321,7 +313,9 @@ describe('BookingsService', () => {
         .mockResolvedValueOnce({ ...booking, items: [], payment: null })
         .mockResolvedValueOnce(mockCourt);
       mockQb.getOne.mockResolvedValue(mockBooking({ id: 'other-booking', clientName: 'María' }));
-      await expect(service.update('booking-uuid', moveDto, mockAdmin())).rejects.toThrow(ConflictException);
+      await expect(service.update('booking-uuid', moveDto, mockAdmin())).rejects.toThrow(
+        ConflictException,
+      );
     });
 
     it('lanza ForbiddenException si empleado intenta mover un turno COMPLETED', async () => {
@@ -329,7 +323,9 @@ describe('BookingsService', () => {
       mockManager.findOne
         .mockResolvedValueOnce(booking)
         .mockResolvedValueOnce({ ...booking, items: [], payment: null });
-      await expect(service.update('booking-uuid', moveDto, mockEmployee())).rejects.toThrow(ForbiddenException);
+      await expect(service.update('booking-uuid', moveDto, mockEmployee())).rejects.toThrow(
+        ForbiddenException,
+      );
     });
 
     it('lanza ForbiddenException si empleado intenta mover un turno CANCELLED', async () => {
@@ -337,7 +333,9 @@ describe('BookingsService', () => {
       mockManager.findOne
         .mockResolvedValueOnce(booking)
         .mockResolvedValueOnce({ ...booking, items: [], payment: null });
-      await expect(service.update('booking-uuid', moveDto, mockEmployee())).rejects.toThrow(ForbiddenException);
+      await expect(service.update('booking-uuid', moveDto, mockEmployee())).rejects.toThrow(
+        ForbiddenException,
+      );
     });
 
     it('admin puede mover un turno en estado COMPLETED', async () => {
@@ -352,15 +350,6 @@ describe('BookingsService', () => {
       await expect(service.update('booking-uuid', moveDto, mockAdmin())).resolves.toBeDefined();
     });
   });
-
-  // ─── create con sourceId (duplicate) ────────────────────────────────────
-  // create() llama a this.findOne(dto.sourceId) ANTES de abrir el queryRunner,
-  // usando bookingRepo.findOne. Luego, dentro de la transacción:
-  //   manager.findOne(Court)          → cancha destino
-  //   manager.createQueryBuilder.getOne() → chequeo de solapamiento
-  //   manager.create(Booking) + manager.save(Booking)      → nueva reserva
-  //   manager.create(BookingPayment) + manager.save(...)   → pago en $0
-  // Al finalizar: this.findOne(savedBooking.id) → segunda llamada a bookingRepo.findOne.
 
   describe('create with sourceId (duplicate)', () => {
     const sourceBooking = mockBooking({
@@ -387,19 +376,15 @@ describe('BookingsService', () => {
 
     it('lanza NotFoundException si el turno original no existe', async () => {
       bookingRepo.findOne.mockResolvedValueOnce(null);
-      await expect(
-        service.create({ ...dupDto, sourceId: 'missing' }, mockAdmin()),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.create({ ...dupDto, sourceId: 'missing' }, mockAdmin())).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('hereda clientName, priceType y durationMinutes del turno original', async () => {
-      // bookingRepo.findOne #1: fuente (vía this.findOne(dto.sourceId))
       bookingRepo.findOne.mockResolvedValueOnce(sourceBooking);
-      // manager.findOne → Court
       mockManager.findOne.mockResolvedValueOnce(mockCourt);
-      // solapamiento → libre
       mockQb.getOne.mockResolvedValue(null);
-      // create(Booking) → save → savedBooking
       const createdBooking = mockBooking({ clientName: 'Carlos Rodríguez' });
       mockManager.create
         .mockReturnValueOnce(createdBooking)
@@ -407,7 +392,6 @@ describe('BookingsService', () => {
       mockManager.save
         .mockResolvedValueOnce({ ...createdBooking, id: 'new-booking-uuid' })
         .mockResolvedValueOnce({ id: 'payment-uuid' });
-      // bookingRepo.findOne #2: resultado final (vía this.findOne(savedBooking.id))
       const finalBooking = mockBooking({
         id: 'new-booking-uuid',
         clientName: 'Carlos Rodríguez',
@@ -438,7 +422,6 @@ describe('BookingsService', () => {
 
       await service.create(dupDto, mockAdmin());
 
-      // La segunda llamada a manager.create debe ser BookingPayment con amountCash:0, amountTransfer:0
       expect(mockManager.create).toHaveBeenNthCalledWith(
         2,
         expect.anything(),
@@ -446,8 +429,6 @@ describe('BookingsService', () => {
       );
     });
   });
-
-  // ─── handleDbError ────────────────────────────────────────────────────────
 
   describe('handleDbError', () => {
     it('convierte error 23505 en ConflictException al crear', async () => {

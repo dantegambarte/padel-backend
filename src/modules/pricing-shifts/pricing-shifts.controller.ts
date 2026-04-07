@@ -74,10 +74,7 @@ export class PricingShiftsController {
    */
   @Patch(':id')
   @ApiOperation({ summary: 'Actualizar una franja horaria' })
-  update(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: UpdatePricingShiftDto,
-  ) {
+  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdatePricingShiftDto) {
     return this.service.update(id, dto);
   }
 

@@ -308,12 +308,10 @@ export class ReportsService {
    * Alimenta el gráfico de barras del Dashboard Admin.
    * @param days - Número de días hacia atrás (default: 7).
    */
-  async getRevenueTrend(days = 7): Promise<
-    { date: string; cash: number; transfer: number; total: number }[]
-  > {
-    const rows = await this.dataSource.query<
-      { date: string; cash: string; transfer: string }[]
-    >(
+  async getRevenueTrend(
+    days = 7,
+  ): Promise<{ date: string; cash: number; transfer: number; total: number }[]> {
+    const rows = await this.dataSource.query<{ date: string; cash: string; transfer: string }[]>(
       `SELECT
          (created_at AT TIME ZONE $1)::date::text                  AS date,
          COALESCE(SUM(amount_cash),                           0)   AS cash,
@@ -354,14 +352,16 @@ export class ReportsService {
   }> {
     const { from, to } = this.resolveDateRange(dto);
 
-    const items = await this.dataSource.query<{
-      id: string;
-      date: string;
-      description: string;
-      category: string;
-      payment_method: string;
-      amount: string;
-    }[]>(
+    const items = await this.dataSource.query<
+      {
+        id: string;
+        date: string;
+        description: string;
+        category: string;
+        payment_method: string;
+        amount: string;
+      }[]
+    >(
       `SELECT
          id,
          date::text,
@@ -376,10 +376,12 @@ export class ReportsService {
       [from, to],
     );
 
-    const byCategory = await this.dataSource.query<{
-      category: string;
-      total: string;
-    }[]>(
+    const byCategory = await this.dataSource.query<
+      {
+        category: string;
+        total: string;
+      }[]
+    >(
       `SELECT
          category,
          SUM(amount) AS total
@@ -391,10 +393,12 @@ export class ReportsService {
       [from, to],
     );
 
-    const byPaymentMethod = await this.dataSource.query<{
-      payment_method: string;
-      total: string;
-    }[]>(
+    const byPaymentMethod = await this.dataSource.query<
+      {
+        payment_method: string;
+        total: string;
+      }[]
+    >(
       `SELECT
          payment_method,
          SUM(amount) AS total
@@ -470,7 +474,7 @@ export class ReportsService {
     );
 
     const r = rows[0];
-    const totalRevenue  = parseFloat(r.total_revenue);
+    const totalRevenue = parseFloat(r.total_revenue);
     const totalExpenses = parseFloat(r.total_expenses);
     return {
       totalRevenue,
@@ -485,18 +489,22 @@ export class ReportsService {
   }
 
   /** Retorna los productos con stock igual o inferior al umbral mínimo. */
-  async getLowStock(): Promise<{
-    id: string;
-    name: string;
-    stock: number;
-    minStock: number;
-  }[]> {
-    const rows = await this.dataSource.query<{
+  async getLowStock(): Promise<
+    {
       id: string;
       name: string;
-      stock: string;
-      min_stock: string;
-    }[]>(
+      stock: number;
+      minStock: number;
+    }[]
+  > {
+    const rows = await this.dataSource.query<
+      {
+        id: string;
+        name: string;
+        stock: string;
+        min_stock: string;
+      }[]
+    >(
       `SELECT id, name, stock, min_stock
        FROM products
        WHERE stock <= min_stock

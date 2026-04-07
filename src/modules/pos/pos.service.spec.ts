@@ -1,9 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import {
-  NotFoundException,
-  BadRequestException,
-  ConflictException,
-} from '@nestjs/common';
+import { NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { PosService } from './pos.service';
@@ -12,7 +8,7 @@ import { User, UserRole } from '../users/entities/user.entity';
 import { CashRegisterService } from '../cash-register/cash-register.service';
 
 const mockUser = (): User =>
-  ({ id: 'emp-uuid', username: 'empleado', role: UserRole.EMPLOYEE } as User);
+  ({ id: 'emp-uuid', username: 'empleado', role: UserRole.EMPLOYEE }) as User;
 
 const mockSale = (overrides: Partial<Sale> = {}): Sale =>
   ({

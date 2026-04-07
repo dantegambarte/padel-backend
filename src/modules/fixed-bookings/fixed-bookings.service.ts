@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  NotFoundException,
-  ConflictException,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 
@@ -86,9 +81,7 @@ export class FixedBookingsService {
     const saved = await this.fixedRepo.save(fixed);
 
     const generated = await this.generateBookings(saved, court, user);
-    this.logger.log(
-      `Turno fijo ${saved.id} creado. Turnos generados: ${generated}.`,
-    );
+    this.logger.log(`Turno fijo ${saved.id} creado. Turnos generados: ${generated}.`);
 
     return this.findOne(saved.id);
   }
@@ -116,7 +109,6 @@ export class FixedBookingsService {
 
     const saved = await this.fixedRepo.save(fixed);
 
-    // Si se reactivó, generar los próximos turnos
     if (wasInactive && saved.isActive) {
       const court = await this.courtRepo.findOne({ where: { id: saved.courtId } });
       if (court) {
@@ -144,7 +136,7 @@ export class FixedBookingsService {
    * Las reservas pasadas o en curso no se tocan.
    */
   async deleteCascade(id: string): Promise<{ deleted: number }> {
-    await this.findOne(id); // lanza NotFoundException si no existe
+    await this.findOne(id);
 
     const today = this.localDateStr();
 
@@ -157,8 +149,6 @@ export class FixedBookingsService {
       .andWhere('status = :status', { status: BookingStatus.BOOKED })
       .execute();
 
-    // Hard-delete del turno fijo. La FK booking.fixed_booking_id tiene
-    // onDelete: 'SET NULL', por lo que las reservas pasadas quedan intactas.
     await this.fixedRepo.delete(id);
 
     const deleted = result.affected ?? 0;
@@ -182,29 +172,24 @@ export class FixedBookingsService {
     return { generated };
   }
 
-  // ── Privado ──────────────────────────────────────────────────────────────
-
   /**
    * Genera Booking individuales para las próximas WEEKS_TO_GENERATE semanas
    * a partir de `startDate` (o hoy si ya pasó).
    * Salta las fechas que ya tienen un booking activo en el mismo slot.
    * Retorna la cantidad de bookings insertados.
    */
-  private async generateBookings(
-    fixed: FixedBooking,
-    court: Court,
-    user: User,
-  ): Promise<number> {
+  private async generateBookings(fixed: FixedBooking, court: Court, user: User): Promise<number> {
     const dates = this.getNextOccurrences(fixed.startDate, fixed.dayOfWeek, WEEKS_TO_GENERATE);
 
-    // Convertir dayOfWeek de ISO (1=Lun…7=Dom) al formato JS getDay() (0=Dom…6=Sáb)
-    // que usan los pricing shifts, para que el matching de franjas sea correcto.
     const jsDayOfWeek = fixed.dayOfWeek === 7 ? 0 : fixed.dayOfWeek;
-    const { amount: priceAmount, shiftName: appliedShiftName } = await this.calculateDynamicPrice(jsDayOfWeek, fixed.hour, fixed.durationMinutes);
+    const { amount: priceAmount, shiftName: appliedShiftName } = await this.calculateDynamicPrice(
+      jsDayOfWeek,
+      fixed.hour,
+      fixed.durationMinutes,
+    );
 
     let created = 0;
     for (const date of dates) {
-      // Verificar si ya existe un booking activo en ese slot
       const existing = await this.bookingRepo.findOne({
         where: { courtId: fixed.courtId, date, hour: fixed.hour },
       });
@@ -234,7 +219,6 @@ export class FixedBookingsService {
         await this.bookingRepo.save(booking);
         created++;
       } catch (err: any) {
-        // Colisión de unique constraint por condición de carrera — ignorar
         if (err?.code === '23505') {
           this.logger.warn(`Conflicto al insertar slot ${date} ${fixed.hour} — omitido.`);
         } else {
@@ -257,8 +241,6 @@ export class FixedBookingsService {
     const start = new Date(startDate + 'T00:00:00');
     const base = start > today ? start : today;
 
-    // Avanzar `base` hasta el primer día que coincida con `dayOfWeek`
-    // ISO: getDay() → 0=Dom,1=Lun...6=Sáb; dayOfWeek → 1=Lun...7=Dom
     const isoToJs = (d: number) => (d === 7 ? 0 : d);
     const target = isoToJs(dayOfWeek);
     const current = new Date(base);
@@ -306,8 +288,7 @@ export class FixedBookingsService {
       const [sh, sm] = s.startTime.split(':').map(Number);
       const [eh, em] = s.endTime.split(':').map(Number);
       const startMin = sh * 60 + sm;
-      const endMin   = eh * 60 + em;
-      // Franja normal (mismo día) vs. franja que cruza medianoche
+      const endMin = eh * 60 + em;
       return startMin <= endMin
         ? bookingMin >= startMin && bookingMin < endMin
         : bookingMin >= startMin || bookingMin < endMin;
@@ -316,10 +297,18 @@ export class FixedBookingsService {
     if (matching) {
       let base: number;
       switch (duration) {
-        case 30:  base = Number(matching.price30min);  break;
-        case 90:  base = Number(matching.price90min);  break;
-        case 120: base = Number(matching.price120min); break;
-        default:  base = Number(matching.price60min);  break;
+        case 30:
+          base = Number(matching.price30min);
+          break;
+        case 90:
+          base = Number(matching.price90min);
+          break;
+        case 120:
+          base = Number(matching.price120min);
+          break;
+        default:
+          base = Number(matching.price60min);
+          break;
       }
       this.logger.log(
         `Precio turno fijo: franja "${matching.name}" → $${base} (${duration}min, día=${dayOfWeek}, hora=${hour})`,
@@ -327,9 +316,7 @@ export class FixedBookingsService {
       return { amount: base, shiftName: matching.name };
     }
 
-    this.logger.warn(
-      `Sin franja horaria para día=${dayOfWeek} hora=${hour}. Precio = 0.`,
-    );
+    this.logger.warn(`Sin franja horaria para día=${dayOfWeek} hora=${hour}. Precio = 0.`);
     return { amount: 0, shiftName: 'Estándar' };
   }
 }

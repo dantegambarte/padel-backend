@@ -19,10 +19,10 @@ import { FixedBooking } from '../../fixed-bookings/entities/fixed-booking.entity
 import { Teacher } from '../../teachers/entities/teacher.entity';
 
 export enum BookingStatus {
-  BOOKED = 'booked', // Reservado (con o sin seña)
-  PLAYING = 'playing', // Jugando actualmente
-  COMPLETED = 'completed', // Turno finalizado
-  CANCELLED = 'cancelled', // Cancelado (solo admin)
+  BOOKED = 'booked',
+  PLAYING = 'playing',
+  COMPLETED = 'completed',
+  CANCELLED = 'cancelled',
 }
 
 export enum PriceType {
@@ -59,7 +59,7 @@ export class Booking {
    * La hora se guarda por separado para facilitar queries por grilla.
    */
   @Column({ type: 'date' })
-  date: string; // "2025-03-15"
+  date: string;
 
   /**
    * Franja horaria en formato "HH:MM" (ej: "09:00", "15:00").
@@ -92,7 +92,13 @@ export class Booking {
    * en las franjas no afecten la etiqueta mostrada en el modal de cobro.
    * null para reservas históricas creadas antes de esta columna.
    */
-  @Column({ name: 'applied_shift_name', type: 'varchar', length: 100, nullable: true, default: null })
+  @Column({
+    name: 'applied_shift_name',
+    type: 'varchar',
+    length: 100,
+    nullable: true,
+    default: null,
+  })
   appliedShiftName: string | null;
 
   /**
@@ -125,7 +131,6 @@ export class Booking {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 
-  // ── Relaciones ───────────────────────────────────────
   @OneToMany(() => BookingItem, (item) => item.booking, {
     cascade: false,
     eager: false,
@@ -167,5 +172,4 @@ export class Booking {
   @ManyToOne(() => Teacher, { nullable: true, onDelete: 'SET NULL', eager: false })
   @JoinColumn({ name: 'teacher_id' })
   teacher: Teacher | null;
-
 }

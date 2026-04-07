@@ -11,8 +11,8 @@ import { CashSession } from './cash-session.entity';
 import { User } from '../../users/entities/user.entity';
 
 export enum TransactionType {
-  BOOKING = 'booking', // Pago de turno desde Agenda
-  SALE = 'sale', // Venta desde POS
+  BOOKING = 'booking',
+  SALE = 'sale',
 }
 
 /**

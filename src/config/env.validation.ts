@@ -11,12 +11,10 @@ import * as Joi from 'joi';
  *   ConfigModule.forRoot({ validationSchema: envValidationSchema })
  */
 export const envValidationSchema = Joi.object({
-  // ── Entorno ─────────────────────────────────────────
   NODE_ENV: Joi.string().valid('development', 'production', 'test').default('development'),
 
   PORT: Joi.number().port().default(3000),
 
-  // ── Base de datos (OBLIGATORIAS) ─────────────────────
   DB_HOST: Joi.string().required().messages({
     'any.required': 'DB_HOST es obligatorio. Revise el archivo .env',
   }),
@@ -31,7 +29,6 @@ export const envValidationSchema = Joi.object({
     'any.required': 'DB_DATABASE es obligatorio.',
   }),
 
-  // ── JWT (OBLIGATORIAS en producción) ─────────────────
   JWT_SECRET: Joi.string().min(32).required().messages({
     'any.required': 'JWT_SECRET es obligatorio (mínimo 32 caracteres).',
     'string.min': 'JWT_SECRET debe tener al menos 32 caracteres por seguridad.',
@@ -44,6 +41,5 @@ export const envValidationSchema = Joi.object({
   }),
   JWT_REFRESH_EXPIRES_IN: Joi.string().default('7d'),
 
-  // ── CORS ─────────────────────────────────────────────
   CORS_ORIGIN: Joi.string().uri().default('http://localhost:4200'),
 });

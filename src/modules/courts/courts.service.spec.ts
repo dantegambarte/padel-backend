@@ -27,10 +27,7 @@ describe('CourtsService', () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        CourtsService,
-        { provide: getRepositoryToken(Court), useValue: courtRepo },
-      ],
+      providers: [CourtsService, { provide: getRepositoryToken(Court), useValue: courtRepo }],
     }).compile();
 
     service = module.get<CourtsService>(CourtsService);
@@ -42,9 +39,7 @@ describe('CourtsService', () => {
       courtRepo.find.mockResolvedValue([mockCourt()]);
       const result = await service.findAll();
       expect(result).toHaveLength(1);
-      expect(courtRepo.find).toHaveBeenCalledWith(
-        expect.objectContaining({ where: {} }),
-      );
+      expect(courtRepo.find).toHaveBeenCalledWith(expect.objectContaining({ where: {} }));
     });
 
     it('filtra solo activas cuando onlyActive es true', async () => {

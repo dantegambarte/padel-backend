@@ -22,16 +22,13 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       });
     }
 
-    // La strategy lanza UnauthorizedException con JSON en el message para SESSION_OVERRIDDEN
     if (err instanceof UnauthorizedException) {
       try {
         const parsed = JSON.parse(err.message);
         if (parsed?.error === 'SESSION_OVERRIDDEN') {
           throw new UnauthorizedException(parsed);
         }
-      } catch {
-        // no era JSON, caer al default
-      }
+      } catch {}
       throw err;
     }
 

@@ -10,8 +10,6 @@ import { DailyClosureRecord } from './entities/daily-closure.entity';
   imports: [TypeOrmModule.forFeature([CashSession, Transaction, DailyClosureRecord])],
   controllers: [CashRegisterController],
   providers: [CashRegisterService],
-  // Exportamos el servicio para que BookingsModule y PosModule
-  // puedan inyectarlo en sus transacciones atómicas.
   exports: [CashRegisterService],
 })
 export class CashRegisterModule {}

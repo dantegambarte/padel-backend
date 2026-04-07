@@ -7,11 +7,7 @@ import { ExpensesController } from './expenses.controller';
 import { CashRegisterModule } from '../cash-register/cash-register.module';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([Expense]),
-    // Necesario para inyectar CashRegisterService y vincular la sesión activa
-    CashRegisterModule,
-  ],
+  imports: [TypeOrmModule.forFeature([Expense]), CashRegisterModule],
   controllers: [ExpensesController],
   providers: [ExpensesService],
 })

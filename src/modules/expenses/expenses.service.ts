@@ -19,9 +19,7 @@ const ADMIN_ONLY_CATEGORIES = new Set<ExpenseCategory>([ExpenseCategory.SALARY])
 /** Fecha comercial de hoy en Argentina (YYYY-MM-DD, corte a las 3 AM). */
 function businessDateToday(): string {
   const now = new Date();
-  const ar = new Date(
-    now.toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' }),
-  );
+  const ar = new Date(now.toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' }));
   if (ar.getHours() < 3) ar.setDate(ar.getDate() - 1);
   const y = ar.getFullYear();
   const m = String(ar.getMonth() + 1).padStart(2, '0');
@@ -71,14 +69,13 @@ export class ExpensesService {
         });
       }
 
-      // Restricción física: no se puede gastar más efectivo del que hay en el cajón.
       const availableCash = sessionData.initialBalance + sessionData.cashExpected;
       if (dto.amount > availableCash) {
         const fmt = (n: number) =>
           n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         throw new BadRequestException(
           `No hay suficiente dinero en efectivo en la caja para registrar este egreso. ` +
-          `Disponible: $${fmt(availableCash)}`,
+            `Disponible: $${fmt(availableCash)}`,
         );
       }
 
@@ -102,7 +99,6 @@ export class ExpensesService {
       .orderBy('expense.createdAt', 'DESC');
 
     if (options.role === UserRole.ADMIN) {
-      // Admin: filtro de rango de fechas opcional.
       if (options.from) {
         qb.andWhere('expense.date >= :from', { from: options.from });
       }
@@ -110,10 +106,10 @@ export class ExpensesService {
         qb.andWhere('expense.date <= :to', { to: options.to });
       }
     } else {
-      // Employee: solo egresos de hoy creados por empleados.
       const today = businessDateToday();
-      qb.andWhere('expense.date = :today', { today })
-        .andWhere('creator.role = :role', { role: UserRole.EMPLOYEE });
+      qb.andWhere('expense.date = :today', { today }).andWhere('creator.role = :role', {
+        role: UserRole.EMPLOYEE,
+      });
     }
 
     return qb.getMany();

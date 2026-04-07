@@ -8,7 +8,6 @@ export class FixedBookingsHasDeposit1000000000008 implements MigrationInterface 
   name = 'FixedBookingsHasDeposit1000000000008';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // ── fixed_bookings ──────────────────────────────────────────────────────
     await queryRunner.query(`
       ALTER TABLE "fixed_bookings"
         DROP COLUMN IF EXISTS "monthly_deposit";
@@ -18,7 +17,6 @@ export class FixedBookingsHasDeposit1000000000008 implements MigrationInterface 
         ADD COLUMN IF NOT EXISTS "has_deposit" BOOLEAN NOT NULL DEFAULT false;
     `);
 
-    // ── bookings ────────────────────────────────────────────────────────────
     await queryRunner.query(`
       ALTER TABLE "bookings"
         ADD COLUMN IF NOT EXISTS "has_deposit" BOOLEAN NOT NULL DEFAULT false;

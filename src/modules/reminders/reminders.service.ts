@@ -47,9 +47,6 @@ export class RemindersService {
       this.queryForDate(tomorrowStr),
     ]);
 
-    // Solo incluir los de mañana que estén a ≤ 24 horas desde ahora.
-    // Si el turno es a las 10:00 y ahora son las 11:30, faltan 22.5h → sí aparece.
-    // Si faltan 25h → no aparece todavía.
     const tomorrowWithin24h = tomorrowRows.filter((b) => {
       const bookingTime = this.parseBookingDateTime(b.date, b.hour);
       const diffHours = (bookingTime.getTime() - now.getTime()) / 3_600_000;
@@ -74,7 +71,7 @@ export class RemindersService {
 
     const bookings = await this.bookingRepo.find({
       where: [
-        { date: todayStr,    fixedBookingId: Not(IsNull()), status: Not(BookingStatus.CANCELLED) },
+        { date: todayStr, fixedBookingId: Not(IsNull()), status: Not(BookingStatus.CANCELLED) },
         { date: tomorrowStr, fixedBookingId: Not(IsNull()), status: Not(BookingStatus.CANCELLED) },
       ],
       relations: ['court', 'fixedBooking'],
@@ -97,8 +94,7 @@ export class RemindersService {
     return { alert24h, alertSameDay };
   }
 
-  // ── Privado ──────────────────────────────────────────────────────────────
-
+  /** Retorna todos los bookings de turnos fijos no cancelados para una fecha dada. */
   private async queryForDate(date: string): Promise<Booking[]> {
     return this.bookingRepo.find({
       where: {
@@ -111,6 +107,7 @@ export class RemindersService {
     });
   }
 
+  /** Transforma un Booking en el objeto ReminderItem esperado por el controller y el cron. */
   private toItem(booking: Booking): ReminderItem {
     return {
       bookingId: booking.id,

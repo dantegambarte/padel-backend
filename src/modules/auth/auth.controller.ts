@@ -1,4 +1,13 @@
-import { Controller, Post, Get, Patch, Body, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Get,
+  Patch,
+  Body,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
@@ -72,10 +81,7 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Cambiar contraseña propia' })
-  async changeOwnPassword(
-    @CurrentUser('id') userId: string,
-    @Body() dto: ChangeOwnPasswordDto,
-  ) {
+  async changeOwnPassword(@CurrentUser('id') userId: string, @Body() dto: ChangeOwnPasswordDto) {
     return this.authService.changeOwnPassword(userId, dto);
   }
 }

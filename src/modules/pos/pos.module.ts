@@ -9,10 +9,7 @@ import { Product } from '../products/entities/product.entity';
 import { CashRegisterModule } from '../cash-register/cash-register.module';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([Sale, SaleItem, Product]),
-    CashRegisterModule, // Para registrar movimientos en caja al crear ventas
-  ],
+  imports: [TypeOrmModule.forFeature([Sale, SaleItem, Product]), CashRegisterModule],
   controllers: [PosController],
   providers: [PosService],
   exports: [PosService],

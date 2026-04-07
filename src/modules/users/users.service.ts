@@ -122,9 +122,7 @@ export class UsersService {
     requestingUserId: string,
   ): Promise<{ success: true; message: string }> {
     if (id === requestingUserId) {
-      throw new ForbiddenException(
-        'Usá el perfil de tu cuenta para cambiar tu propia contraseña.',
-      );
+      throw new ForbiddenException('Usá el perfil de tu cuenta para cambiar tu propia contraseña.');
     }
 
     const user = await this.userRepo.findOne({ where: { id } });
@@ -137,7 +135,6 @@ export class UsersService {
     user.mustChangePassword = true;
     await this.userRepo.save(user);
 
-    // Log sin exponer la contraseña
     this.logger.log(
       `Contraseña restablecida para "${user.username}" por admin ${requestingUserId}`,
     );

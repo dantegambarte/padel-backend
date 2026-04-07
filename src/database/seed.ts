@@ -18,7 +18,6 @@ import * as dotenv from 'dotenv';
 
 dotenv.config();
 
-// Entidades
 import { User, UserRole } from '../modules/users/entities/user.entity';
 import { Court } from '../modules/courts/entities/court.entity';
 import { ProductCategory } from '../modules/products/entities/product-category.entity';
@@ -71,7 +70,6 @@ async function seed() {
   await dataSource.initialize();
   console.log('📦 Conectado a la base de datos...');
 
-  // ── 1. Usuarios ──────────────────────────────────────
   const userRepo = dataSource.getRepository(User);
   let adminUser: User;
   let employee1: User;
@@ -125,7 +123,6 @@ async function seed() {
     console.log('⏭️  Usuarios ya existen, saltando...');
   }
 
-  // ── 2. Canchas ───────────────────────────────────────
   const courtRepo = dataSource.getRepository(Court);
   let courts: Court[];
 
@@ -142,7 +139,6 @@ async function seed() {
     console.log('⏭️  Canchas ya existen, saltando...');
   }
 
-  // ── 3. Categorías ────────────────────────────────────
   const categoryRepo = dataSource.getRepository(ProductCategory);
   let categories: Record<string, ProductCategory> = {};
 
@@ -163,7 +159,6 @@ async function seed() {
     console.log('⏭️  Categorías ya existen, saltando...');
   }
 
-  // ── 4. Productos ─────────────────────────────────────
   const productRepo = dataSource.getRepository(Product);
   let products: Record<string, Product> = {};
 
@@ -259,7 +254,6 @@ async function seed() {
     console.log('⏭️  Productos ya existen, saltando...');
   }
 
-  // ── 5. Configuración del sistema ─────────────────────
   const configRepo = dataSource.getRepository(SystemConfig);
   const configCount = await configRepo.count();
 
@@ -297,7 +291,6 @@ async function seed() {
     console.log('⏭️  Configuración ya existe, saltando...');
   }
 
-  // ── 6. Reservas + Pagos + Items ──────────────────────
   const bookingRepo = dataSource.getRepository(Booking);
   const paymentRepo = dataSource.getRepository(BookingPayment);
   const bItemRepo = dataSource.getRepository(BookingItem);
@@ -326,7 +319,6 @@ async function seed() {
     }
 
     const bookingsData: BookingSeed[] = [
-      // ── Hace 6 días ──────────────────────────────────
       {
         court: c1,
         date: dateStr(-6),
@@ -391,7 +383,6 @@ async function seed() {
         items: [],
       },
 
-      // ── Hace 5 días ──────────────────────────────────
       {
         court: c1,
         date: dateStr(-5),
@@ -453,7 +444,6 @@ async function seed() {
         items: [],
       },
 
-      // ── Hace 4 días ──────────────────────────────────
       {
         court: c1,
         date: dateStr(-4),
@@ -518,7 +508,6 @@ async function seed() {
         items: [],
       },
 
-      // ── Hace 3 días ──────────────────────────────────
       {
         court: c1,
         date: dateStr(-3),
@@ -583,7 +572,6 @@ async function seed() {
         items: [],
       },
 
-      // ── Hace 2 días ──────────────────────────────────
       {
         court: c1,
         date: dateStr(-2),
@@ -648,7 +636,6 @@ async function seed() {
         ],
       },
 
-      // ── Ayer ─────────────────────────────────────────
       {
         court: c1,
         date: dateStr(-1),
@@ -725,7 +712,6 @@ async function seed() {
         items: [{ product: gato, qty: 1 }],
       },
 
-      // ── Hoy ──────────────────────────────────────────
       {
         court: c1,
         date: dateStr(0),
@@ -859,7 +845,6 @@ async function seed() {
         items: [],
       },
 
-      // ── Mañana ───────────────────────────────────────
       {
         court: c1,
         date: dateStr(1),
@@ -933,7 +918,6 @@ async function seed() {
         items: [],
       },
 
-      // ── En 2 días ─────────────────────────────────────
       {
         court: c1,
         date: dateStr(2),
@@ -971,7 +955,6 @@ async function seed() {
         items: [],
       },
 
-      // ── En 3 días ─────────────────────────────────────
       {
         court: c1,
         date: dateStr(3),
@@ -1010,7 +993,6 @@ async function seed() {
       },
     ];
 
-    // Guardar todas las reservas y pagos
     for (const bd of bookingsData) {
       const booking = await bookingRepo.save({
         court: bd.court,
@@ -1025,7 +1007,6 @@ async function seed() {
         createdByUserId: employee1.id,
       });
 
-      // Pago (siempre se crea, incluso si es 0)
       if (bd.status !== BookingStatus.CANCELLED) {
         await paymentRepo.save({
           booking,
@@ -1035,7 +1016,6 @@ async function seed() {
         });
       }
 
-      // Items del turno
       for (const { product, qty } of bd.items) {
         await bItemRepo.save({
           booking,
@@ -1050,7 +1030,6 @@ async function seed() {
     console.log(`✅ ${bookingsData.length} Reservas creadas (con pagos e items)`);
   }
 
-  // ── 7. Sesiones de caja ──────────────────────────────
   const sessionRepo = dataSource.getRepository(CashSession);
   const txRepo = dataSource.getRepository(Transaction);
 
@@ -1058,11 +1037,9 @@ async function seed() {
   if (sessionCount > 0) {
     console.log('⏭️  Sesiones de caja ya existen, saltando...');
   } else {
-    // Días pasados: sesiones CERRADAS
     for (let d = -6; d <= -1; d++) {
       const date = dateStr(d);
 
-      // Calcular totales del día desde las reservas ya guardadas
       const dayBookings = await bookingRepo.find({
         where: { date },
         relations: ['payment', 'items'],
@@ -1076,12 +1053,11 @@ async function seed() {
         openedByUserId: employee1.id,
         closedByUser: adminUser,
         closedByUserId: adminUser.id,
-        cashCounted: totalCash + Math.floor(Math.random() * 200 - 100), // leve diferencia
+        cashCounted: totalCash + Math.floor(Math.random() * 200 - 100),
         closedAt: new Date(`${date}T23:30:00`),
         notes: 'Cierre Z automático',
       });
 
-      // Crear transacciones por cada reserva pagada del día
       for (const booking of dayBookings) {
         if (booking.status === BookingStatus.CANCELLED || !booking.payment) continue;
 
@@ -1102,7 +1078,6 @@ async function seed() {
       }
     }
 
-    // Hoy: sesión ABIERTA
     const todaySession = await sessionRepo.save({
       date: dateStr(0),
       status: CashSessionStatus.OPEN,
@@ -1110,7 +1085,6 @@ async function seed() {
       openedByUserId: employee1.id,
     });
 
-    // Transacciones por reservas de hoy ya completadas o playing
     const todayBookings = await bookingRepo.find({
       where: { date: dateStr(0) },
       relations: ['payment', 'items', 'court'],
@@ -1135,17 +1109,14 @@ async function seed() {
 
     console.log('✅ Sesiones de caja creadas (6 cerradas + 1 abierta hoy)');
 
-    // ── 8. Ventas POS ────────────────────────────────────
     const saleRepo = dataSource.getRepository(Sale);
     const sItemRepo = dataSource.getRepository(SaleItem);
 
-    // Ventas de días pasados (en las sesiones cerradas)
     const pastSessions = await sessionRepo.find({
       where: { status: CashSessionStatus.CLOSED },
       order: { date: 'ASC' },
     });
     const salesData = [
-      // día -6
       {
         session: pastSessions[0],
         items: [
@@ -1161,7 +1132,6 @@ async function seed() {
         cash: 1100,
         transfer: 0,
       },
-      // día -5
       {
         session: pastSessions[1],
         items: [
@@ -1177,7 +1147,6 @@ async function seed() {
         cash: 0,
         transfer: 1200,
       },
-      // día -4
       {
         session: pastSessions[2],
         items: [
@@ -1196,7 +1165,6 @@ async function seed() {
         cash: 0,
         transfer: 1550,
       },
-      // día -3
       {
         session: pastSessions[3],
         items: [
@@ -1212,7 +1180,6 @@ async function seed() {
         cash: 1750,
         transfer: 0,
       },
-      // día -2
       {
         session: pastSessions[4],
         items: [
@@ -1231,7 +1198,6 @@ async function seed() {
         cash: 0,
         transfer: 3000,
       },
-      // día -1 (ayer)
       {
         session: pastSessions[5],
         items: [
@@ -1275,7 +1241,6 @@ async function seed() {
         });
       }
 
-      // Registrar en caja
       await txRepo.save({
         cashSession: sd.session,
         cashSessionId: sd.session.id,
@@ -1289,7 +1254,6 @@ async function seed() {
       });
     }
 
-    // 2 ventas de hoy
     for (const sd of [
       {
         items: [

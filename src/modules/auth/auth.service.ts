@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  UnauthorizedException,
-  BadRequestException,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -31,7 +26,16 @@ export class AuthService {
   async validateUser(username: string, password: string): Promise<User> {
     const user = await this.userRepo.findOne({
       where: { username: username.toLowerCase().trim() },
-      select: ['id', 'username', 'fullName', 'role', 'isActive', 'mustChangePassword', 'passwordHash', 'sessionVersion'],
+      select: [
+        'id',
+        'username',
+        'fullName',
+        'role',
+        'isActive',
+        'mustChangePassword',
+        'passwordHash',
+        'sessionVersion',
+      ],
     });
 
     if (!user) {
@@ -54,9 +58,6 @@ export class AuthService {
   async login(loginDto: LoginDto) {
     const user = await this.validateUser(loginDto.username, loginDto.password);
 
-    // Incrementar sessionVersion para invalidar cualquier token previo emitido
-    // a este usuario. El token nuevo lleva el valor actualizado; los tokens
-    // anteriores fallarán la comparación sv en JwtStrategy.validate().
     const newSv = user.sessionVersion + 1;
     await this.userRepo.update(user.id, { sessionVersion: newSv });
 
@@ -117,9 +118,6 @@ export class AuthService {
         throw new UnauthorizedException('Sesión inválida.');
       }
 
-      // El refresh token rota pero mantiene la sessionVersion actual de DB
-      // (si el usuario volvió a loguearse en otro dispositivo, sv no coincidirá
-      //  en la siguiente request protegida y será rechazada allí)
       const newPayload: JwtPayload = {
         sub: user.id,
         username: user.username,

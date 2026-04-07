@@ -13,19 +13,16 @@ export class AddOpenedByIndexToCashSessions1000000000005 implements MigrationInt
   name = 'AddOpenedByIndexToCashSessions1000000000005';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // Índice para el endpoint daily-summary (filtro WHERE date = $1)
     await queryRunner.query(`
       CREATE INDEX IF NOT EXISTS "IDX_cash_sessions_date"
         ON "cash_sessions" ("date");
     `);
 
-    // Índice para queries de sesiones por cajero (historial por usuario)
     await queryRunner.query(`
       CREATE INDEX IF NOT EXISTS "IDX_cash_sessions_opened_by_user_id"
         ON "cash_sessions" ("opened_by_user_id");
     `);
 
-    // Índice compuesto para la query de sesión activa (status = 'open')
     await queryRunner.query(`
       CREATE INDEX IF NOT EXISTS "IDX_cash_sessions_status"
         ON "cash_sessions" ("status")

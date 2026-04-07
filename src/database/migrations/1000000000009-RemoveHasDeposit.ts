@@ -6,12 +6,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  */
 export class RemoveHasDeposit1000000000009 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(
-      `ALTER TABLE "fixed_bookings" DROP COLUMN IF EXISTS "has_deposit"`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "bookings" DROP COLUMN IF EXISTS "has_deposit"`,
-    );
+    await queryRunner.query(`ALTER TABLE "fixed_bookings" DROP COLUMN IF EXISTS "has_deposit"`);
+    await queryRunner.query(`ALTER TABLE "bookings" DROP COLUMN IF EXISTS "has_deposit"`);
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {

@@ -23,7 +23,7 @@ export class Product {
   @ManyToOne(() => ProductCategory, (category) => category.products, {
     nullable: true,
     onDelete: 'SET NULL',
-    eager: true, // siempre cargamos la categoría junto al producto
+    eager: true,
   })
   @JoinColumn({ name: 'category_id' })
   category: ProductCategory;
@@ -81,7 +81,6 @@ export class Product {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 
-  // ── Relaciones inversas ──────────────────────────────
   @OneToMany('BookingItem', 'product')
   bookingItems: any[];
 

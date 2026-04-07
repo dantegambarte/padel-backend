@@ -7,20 +7,15 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // ── Cabeceras HTTP seguras ──────────────────────────
   app.use(helmet());
 
-  // ── CORS ────────────────────────────────────────────
-  const allowedOrigins: string[] = (
-    process.env.ALLOWED_ORIGINS || 'http://localhost:4200'
-  )
+  const allowedOrigins: string[] = (process.env.ALLOWED_ORIGINS || 'http://localhost:4200')
     .split(',')
     .map((o) => o.trim())
     .filter(Boolean);
 
   app.enableCors({
     origin: (origin, callback) => {
-      // Permitir peticiones sin origin (ej. curl, Postman en dev)
       if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
@@ -30,25 +25,21 @@ async function bootstrap() {
     credentials: true,
   });
 
-  // ── Prefijo global de API ───────────────────────────
   app.setGlobalPrefix('api/v1');
 
-  // ── Serialización global (excluye campos @Exclude()) ──
   app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
 
-  // ── Validación global ───────────────────────────────
   app.useGlobalPipes(
     new ValidationPipe({
-      whitelist: true, // elimina props no declaradas en DTOs
+      whitelist: true,
       forbidNonWhitelisted: true,
-      transform: true, // convierte tipos automáticamente
+      transform: true,
       transformOptions: {
         enableImplicitConversion: true,
       },
     }),
   );
 
-  // ── Swagger (solo en desarrollo) ───────────────────
   if (process.env.NODE_ENV !== 'production') {
     const config = new DocumentBuilder()
       .setTitle('PadelSys API')

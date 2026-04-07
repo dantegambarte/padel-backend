@@ -33,6 +33,7 @@ export class TeachersService {
     });
   }
 
+  /** Retorna un profesor por ID o lanza NotFoundException. */
   async findOne(id: string): Promise<Teacher> {
     const teacher = await this.teacherRepo.findOne({ where: { id } });
     if (!teacher) {
@@ -41,6 +42,7 @@ export class TeachersService {
     return teacher;
   }
 
+  /** Crea un nuevo profesor. */
   create(dto: CreateTeacherDto): Promise<Teacher> {
     const teacher = this.teacherRepo.create({
       fullName: dto.fullName,
@@ -49,12 +51,13 @@ export class TeachersService {
     return this.teacherRepo.save(teacher);
   }
 
+  /** Actualiza parcialmente un profesor. */
   async update(id: string, dto: UpdateTeacherDto): Promise<Teacher> {
     const teacher = await this.findOne(id);
 
-    if (dto.fullName    !== undefined) teacher.fullName    = dto.fullName;
+    if (dto.fullName !== undefined) teacher.fullName = dto.fullName;
     if (dto.phoneNumber !== undefined) teacher.phoneNumber = dto.phoneNumber ?? null;
-    if (dto.isActive    !== undefined) teacher.isActive    = dto.isActive;
+    if (dto.isActive !== undefined) teacher.isActive = dto.isActive;
 
     return this.teacherRepo.save(teacher);
   }
@@ -72,7 +75,7 @@ export class TeachersService {
    */
   private resolveTeacherPrice(date: string, hour: string, shifts: PricingShift[]): number {
     const [year, month, day] = date.split('-').map(Number);
-    const dayOfWeek = new Date(year, month - 1, day).getDay(); // 0=Dom…6=Sáb
+    const dayOfWeek = new Date(year, month - 1, day).getDay();
     const [h, m] = hour.split(':').map(Number);
     const bookingMin = h * 60 + m;
 
@@ -82,10 +85,10 @@ export class TeachersService {
       const [sh, sm] = s.startTime.split(':').map(Number);
       const [eh, em] = s.endTime.split(':').map(Number);
       const startMin = sh * 60 + sm;
-      const endMin   = eh * 60 + em;
+      const endMin = eh * 60 + em;
       return startMin <= endMin
         ? bookingMin >= startMin && bookingMin < endMin
-        : bookingMin >= startMin || bookingMin < endMin; // franja que cruza medianoche
+        : bookingMin >= startMin || bookingMin < endMin;
     });
 
     return matching ? Number(matching.teacherPricePerHour) : 0;
@@ -122,14 +125,14 @@ export class TeachersService {
         id: b.id,
         date: b.date,
         hour: b.hour,
-        durationMinutes: 60, // el profesor siempre trabaja 1h por turno
+        durationMinutes: 60,
         courtName: b.court?.name ?? '—',
         teacherAmount,
       };
     });
 
     const totalMinutes = mappedBookings.length * 60;
-    const totalAmount  = mappedBookings.reduce((sum, b) => sum + b.teacherAmount, 0);
+    const totalAmount = mappedBookings.reduce((sum, b) => sum + b.teacherAmount, 0);
 
     return {
       teacher,

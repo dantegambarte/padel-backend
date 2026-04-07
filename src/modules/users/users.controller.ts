@@ -25,7 +25,7 @@ import { UserRole } from './entities/user.entity';
 @ApiTags('Usuarios')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.ADMIN) // Todo el módulo es solo para admins
+@Roles(UserRole.ADMIN)
 @Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}

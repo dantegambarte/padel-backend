@@ -21,7 +21,6 @@ export const AppDataSource = new DataSource({
   password: process.env.DB_PASSWORD || 'padel_secret',
   database: process.env.DB_DATABASE || 'padelsys',
 
-  // En producción: synchronize SIEMPRE false. Usamos migraciones.
   synchronize: false,
   logging: process.env.NODE_ENV === 'development',
 

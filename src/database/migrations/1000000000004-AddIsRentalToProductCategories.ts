@@ -19,7 +19,6 @@ export class AddIsRentalToProductCategories1000000000004 implements MigrationInt
       ADD COLUMN IF NOT EXISTS "is_rental" boolean NOT NULL DEFAULT false;
     `);
 
-    // Marcar automáticamente la categoría canónica (coincidencia exacta)
     await queryRunner.query(`
       UPDATE "product_categories"
       SET "is_rental" = true

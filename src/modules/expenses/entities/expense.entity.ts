@@ -13,19 +13,19 @@ import { User } from '../../users/entities/user.entity';
 
 /** Métodos de pago admitidos para un egreso. */
 export enum PaymentMethod {
-  CASH     = 'Efectivo',
+  CASH = 'Efectivo',
   TRANSFER = 'Transferencia',
-  CARD     = 'Tarjeta',
-  OTHER    = 'Otro',
+  CARD = 'Tarjeta',
+  OTHER = 'Otro',
 }
 
 /** Categorías predefinidas de egresos. */
 export enum ExpenseCategory {
-  SUPPLIES    = 'Insumos',
+  SUPPLIES = 'Insumos',
   MAINTENANCE = 'Mantenimiento',
-  SALARY      = 'Sueldos',
-  SERVICES    = 'Servicios',
-  OTHER       = 'Otro',
+  SALARY = 'Sueldos',
+  SERVICES = 'Servicios',
+  OTHER = 'Otro',
 }
 
 @Entity('expenses')

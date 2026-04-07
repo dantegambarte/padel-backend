@@ -1,9 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import {
-  NotFoundException,
-  ConflictException,
-  BadRequestException,
-} from '@nestjs/common';
+import { NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { CashRegisterService } from './cash-register.service';
@@ -12,7 +8,7 @@ import { Transaction } from './entities/transaction.entity';
 import { User, UserRole } from '../users/entities/user.entity';
 
 const mockUser = (): User =>
-  ({ id: 'admin-uuid', username: 'admin', role: UserRole.ADMIN } as User);
+  ({ id: 'admin-uuid', username: 'admin', role: UserRole.ADMIN }) as User;
 
 const mockSession = (overrides: Partial<CashSession> = {}): CashSession =>
   ({
@@ -59,8 +55,6 @@ describe('CashRegisterService', () => {
     service = module.get<CashRegisterService>(CashRegisterService);
     jest.clearAllMocks();
   });
-
-  // ─── getCurrentSession ────────────────────────────────────────────────────
 
   describe('getCurrentSession', () => {
     it('retorna session:null e isOpen:false si no hay ninguna sesión abierta', async () => {
@@ -124,17 +118,13 @@ describe('CashRegisterService', () => {
     });
 
     it('turno trasnoche: devuelve la sesión CERRADA cuando closedAt está en la ventana comercial activa', async () => {
-      // Simula un turno abierto el viernes (date='2025-05-30') y cerrado el sábado
-      // a las 03:00 AM (después del cutoff de las 02:00 AM) → closedAt = ahora (en ventana).
       const overnightSession = mockSession({
         status: CashSessionStatus.CLOSED,
         date: '2025-05-30',
-        closedAt: new Date(), // cerrado recientemente → dentro de la ventana comercial
+        closedAt: new Date(),
       });
 
-      sessionRepo.findOne
-        .mockResolvedValueOnce(null)              // no hay sesión OPEN
-        .mockResolvedValueOnce(overnightSession); // sesión cerrada trasnoche dentro de la ventana
+      sessionRepo.findOne.mockResolvedValueOnce(null).mockResolvedValueOnce(overnightSession);
 
       dataSource.query
         .mockResolvedValueOnce([{ cash_expected: '12000', transfer_total: '3000' }])
@@ -149,10 +139,7 @@ describe('CashRegisterService', () => {
     });
 
     it('turno trasnoche: devuelve session:null cuando no hay sesiones en la ventana activa', async () => {
-      // Ambos findOne retornan null: no hay OPEN ni CLOSED dentro de la ventana
-      sessionRepo.findOne
-        .mockResolvedValueOnce(null)  // no hay sesión OPEN
-        .mockResolvedValueOnce(null); // no hay sesión CLOSED en la ventana
+      sessionRepo.findOne.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
 
       const result = await service.getCurrentSession();
 
@@ -162,11 +149,9 @@ describe('CashRegisterService', () => {
     });
   });
 
-  // ─── openSession ──────────────────────────────────────────────────────────
-
   describe('openSession', () => {
     it('abre una nueva sesión correctamente cuando no hay ninguna abierta', async () => {
-      sessionRepo.findOne.mockResolvedValue(null); // no existe sesión OPEN
+      sessionRepo.findOne.mockResolvedValue(null);
       const newSession = mockSession();
       sessionRepo.create.mockReturnValue(newSession);
       sessionRepo.save.mockResolvedValue(newSession);
@@ -190,9 +175,9 @@ describe('CashRegisterService', () => {
     it('lanza ConflictException si ya existe una sesión OPEN', async () => {
       sessionRepo.findOne.mockResolvedValue(mockSession({ status: CashSessionStatus.OPEN }));
 
-      await expect(
-        service.openSession({ initialBalance: 0 }, mockUser()),
-      ).rejects.toThrow(ConflictException);
+      await expect(service.openSession({ initialBalance: 0 }, mockUser())).rejects.toThrow(
+        ConflictException,
+      );
     });
 
     it('lanza ConflictException con código 23505 de la DB (pre-migración)', async () => {
@@ -200,13 +185,13 @@ describe('CashRegisterService', () => {
       sessionRepo.create.mockReturnValue(mockSession());
       sessionRepo.save.mockRejectedValue({ code: '23505' });
 
-      await expect(
-        service.openSession({ initialBalance: 0 }, mockUser()),
-      ).rejects.toThrow(ConflictException);
+      await expect(service.openSession({ initialBalance: 0 }, mockUser())).rejects.toThrow(
+        ConflictException,
+      );
     });
 
     it('permite abrir sesión aunque ya haya una CLOSED hoy (turnos mañana/tarde)', async () => {
-      sessionRepo.findOne.mockResolvedValue(null); // no hay OPEN
+      sessionRepo.findOne.mockResolvedValue(null);
       const newSession = mockSession();
       sessionRepo.create.mockReturnValue(newSession);
       sessionRepo.save.mockResolvedValue(newSession);
@@ -216,8 +201,6 @@ describe('CashRegisterService', () => {
       ).resolves.toBeDefined();
     });
   });
-
-  // ─── closeSession ─────────────────────────────────────────────────────────
 
   describe('closeSession', () => {
     it('cierra la sesión y calcula la diferencia correctamente (sobrante)', async () => {
@@ -267,11 +250,11 @@ describe('CashRegisterService', () => {
 
     it('lanza NotFoundException si no hay sesión abierta', async () => {
       sessionRepo.findOne.mockResolvedValue(null);
-      await expect(service.closeSession({ cashCounted: 0 }, mockUser())).rejects.toThrow(NotFoundException);
+      await expect(service.closeSession({ cashCounted: 0 }, mockUser())).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
-
-  // ─── getActiveSessionOrFail ───────────────────────────────────────────────
 
   describe('getActiveSessionOrFail', () => {
     it('retorna la sesión abierta existente', async () => {
@@ -295,9 +278,9 @@ describe('CashRegisterService', () => {
         },
       };
 
-      await expect(
-        service.getActiveSessionOrFail(mockQr, 'admin-uuid'),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.getActiveSessionOrFail(mockQr, 'admin-uuid')).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('aplica advisory lock antes de buscar la sesión', async () => {
@@ -316,8 +299,6 @@ describe('CashRegisterService', () => {
     });
   });
 
-  // ─── getBusinessDate ────────────────────────────────────────────────────
-
   describe('getBusinessDate', () => {
     it('retorna una fecha en formato YYYY-MM-DD', () => {
       const result = service.getBusinessDate();
@@ -325,23 +306,17 @@ describe('CashRegisterService', () => {
     });
 
     it('retorna la fecha de ayer si la hora actual es entre 00:00 y 03:59 en Argentina', () => {
-      // Simula las 2 AM UTC-3 (= 5 AM UTC) — sería antes del cutoff
-      // Testear directamente con la lógica: si hora < 4 → fecha anterior
-      // Mockear Date para que sea las 02:00 AM en Argentina (UTC-3 → 05:00 UTC)
-      const fakeDate = new Date('2025-06-02T05:00:00.000Z'); // 02:00 AM en Argentina
+      const fakeDate = new Date('2025-06-02T05:00:00.000Z');
       jest.spyOn(global, 'Date').mockImplementation(() => fakeDate as any);
 
       const result = service.getBusinessDate();
 
-      // Puede retornar 2025-06-01 (día anterior) o 2025-06-02 según TZ del runner de test
-      // Lo importante: que devuelva formato válido
       expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 
       jest.restoreAllMocks();
     });
 
     it('retorna la fecha de hoy si la hora actual es >= 04:00 en Argentina', () => {
-      // Las 12:00 PM en Argentina (UTC-3 → 15:00 UTC)
       const fakeDate = new Date('2025-06-01T15:00:00.000Z');
       jest.spyOn(global, 'Date').mockImplementation(() => fakeDate as any);
 
@@ -351,8 +326,6 @@ describe('CashRegisterService', () => {
       jest.restoreAllMocks();
     });
   });
-
-  // ─── closeDay ─────────────────────────────────────────────────────────────
 
   describe('closeDay', () => {
     const closedSessionRow = {
@@ -375,37 +348,50 @@ describe('CashRegisterService', () => {
     });
 
     it('consolida los turnos cerrados en la ventana activa y retorna el resumen', async () => {
-      sessionRepo.findOne.mockResolvedValue(null); // no hay OPEN
+      sessionRepo.findOne.mockResolvedValue(null);
       dataSource.query.mockResolvedValue([closedSessionRow]);
 
       const result = await service.closeDay();
 
       expect(result.date).toBe('2025-06-01');
       expect(result.sessions).toHaveLength(1);
-      expect(result.totalExpected).toBe(11500); // 9500 + 2000
+      expect(result.totalExpected).toBe(11500);
       expect(result.totalCounted).toBe(10000);
     });
 
     it('turno trasnoche: consolida sesiones con distinto date pero closedAt en la ventana', async () => {
-      // Turno A: abierto el viernes (date='2025-05-30'), cerrado el sábado
-      // Turno B: abierto el sábado (date='2025-05-31'), cerrado el sábado
-      const rowA = { ...closedSessionRow, id: 'sess-a', date: '2025-05-30', cash_expected: '5000', transfer_total: '1000', cash_counted: '5000', difference: '0' };
-      const rowB = { ...closedSessionRow, id: 'sess-b', date: '2025-05-31', cash_expected: '8000', transfer_total: '2000', cash_counted: '8000', difference: '0' };
+      const rowA = {
+        ...closedSessionRow,
+        id: 'sess-a',
+        date: '2025-05-30',
+        cash_expected: '5000',
+        transfer_total: '1000',
+        cash_counted: '5000',
+        difference: '0',
+      };
+      const rowB = {
+        ...closedSessionRow,
+        id: 'sess-b',
+        date: '2025-05-31',
+        cash_expected: '8000',
+        transfer_total: '2000',
+        cash_counted: '8000',
+        difference: '0',
+      };
 
       sessionRepo.findOne.mockResolvedValue(null);
       dataSource.query.mockResolvedValue([rowA, rowB]);
 
       const result = await service.closeDay();
 
-      // Usa la fecha del primer turno (el más antiguo de la ventana)
       expect(result.date).toBe('2025-05-30');
       expect(result.sessions).toHaveLength(2);
-      expect(result.totalExpected).toBe(16000); // (5000+1000) + (8000+2000)
+      expect(result.totalExpected).toBe(16000);
     });
 
     it('lanza NotFoundException si no hay turnos cerrados en la ventana activa', async () => {
-      sessionRepo.findOne.mockResolvedValue(null); // no hay OPEN
-      dataSource.query.mockResolvedValue([]);      // no hay CLOSED en la ventana
+      sessionRepo.findOne.mockResolvedValue(null);
+      dataSource.query.mockResolvedValue([]);
 
       await expect(service.closeDay()).rejects.toThrow(NotFoundException);
     });
@@ -420,8 +406,6 @@ describe('CashRegisterService', () => {
       expect(result.totalCounted).toBeNull();
     });
   });
-
-  // ─── getActiveSessionKpis ─────────────────────────────────────────────────
 
   describe('getActiveSessionKpis', () => {
     it('retorna ceros si no hay sesión OPEN activa', async () => {
@@ -439,7 +423,6 @@ describe('CashRegisterService', () => {
     it('retorna KPIs calculados desde la sesión activa', async () => {
       sessionRepo.findOne.mockResolvedValue(mockSession({ date: '2025-06-01' }));
 
-      // 8 queries en paralelo: revenue, completed, live, canceled, courts, cantinaItems, cantinaRevenue, topProduct
       dataSource.query
         .mockResolvedValueOnce([{ total: '50000', cash: '30000', transfer: '20000' }])
         .mockResolvedValueOnce([{ completed: '5' }])
@@ -468,14 +451,13 @@ describe('CashRegisterService', () => {
         .mockResolvedValueOnce([{ completed: '7' }])
         .mockResolvedValueOnce([{ live: '0' }])
         .mockResolvedValueOnce([{ canceled: '0' }])
-        .mockResolvedValueOnce([{ court_count: '2' }]) // 2 canchas × 14 slots = 28
+        .mockResolvedValueOnce([{ court_count: '2' }])
         .mockResolvedValueOnce([{ total_qty: '0' }])
         .mockResolvedValueOnce([{ cantina_revenue: '0' }])
         .mockResolvedValueOnce([]);
 
       const result = await service.getActiveSessionKpis();
 
-      // 7 / 28 = 25%
       expect(result.totalSlots).toBe(28);
       expect(result.occupationRate).toBe(25);
     });
@@ -495,8 +477,6 @@ describe('CashRegisterService', () => {
 
       const result = await service.getActiveSessionKpis();
 
-      // court_count = 0 → se usa 1 como fallback, totalSlots = 14
-      // Pero el código hace: courtCount = parseInt('0') → 0 → totalSlots = 0 → occupationRate = 0
       expect(result.occupationRate).toBe(0);
     });
   });

@@ -54,8 +54,6 @@ describe('AuthService', () => {
     userRepo.increment.mockResolvedValue({});
   });
 
-  // ─── validateUser ─────────────────────────────────────────────────────────
-
   describe('validateUser', () => {
     it('lanza UnauthorizedException si el usuario no existe', async () => {
       userRepo.findOne.mockResolvedValue(null);
@@ -88,8 +86,6 @@ describe('AuthService', () => {
       );
     });
   });
-
-  // ─── login ────────────────────────────────────────────────────────────────
 
   describe('login', () => {
     it('retorna accessToken, refreshToken y datos del usuario', async () => {
@@ -141,13 +137,14 @@ describe('AuthService', () => {
     });
   });
 
-  // ─── refreshToken ─────────────────────────────────────────────────────────
-
   describe('refreshToken', () => {
     it('retorna nuevo par de tokens si el refresh token es válido', async () => {
       const user = mockUser();
       jwtService.verifyAsync.mockResolvedValue({
-        sub: user.id, username: user.username, role: user.role, sv: user.sessionVersion,
+        sub: user.id,
+        username: user.username,
+        role: user.role,
+        sv: user.sessionVersion,
       });
       userRepo.findOne.mockResolvedValue(user);
 
@@ -187,8 +184,6 @@ describe('AuthService', () => {
     });
   });
 
-  // ─── getProfile ───────────────────────────────────────────────────────────
-
   describe('getProfile', () => {
     it('retorna el usuario autenticado', async () => {
       userRepo.findOne.mockResolvedValue(mockUser());
@@ -201,8 +196,6 @@ describe('AuthService', () => {
       await expect(service.getProfile('missing-uuid')).rejects.toThrow(UnauthorizedException);
     });
   });
-
-  // ─── changeOwnPassword ────────────────────────────────────────────────────
 
   describe('changeOwnPassword', () => {
     it('actualiza la contraseña si la actual es correcta y la nueva es diferente', async () => {

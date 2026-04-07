@@ -24,13 +24,13 @@ export class RemindersCronService {
 
   constructor(private readonly remindersService: RemindersService) {}
 
+  /** Cron que se ejecuta cada hora y emite logs para los turnos fijos en ventana de alerta. */
   @Cron(CronExpression.EVERY_HOUR)
   async handleHourlyReminders(): Promise<void> {
     this.resetTrackingIfNewDay();
 
     try {
-      const { alert24h, alertSameDay } =
-        await this.remindersService.getUpcomingForCron();
+      const { alert24h, alertSameDay } = await this.remindersService.getUpcomingForCron();
 
       for (const item of alert24h) {
         if (this.alerted24h.has(item.bookingId)) continue;
@@ -52,6 +52,7 @@ export class RemindersCronService {
     }
   }
 
+  /** Reinicia los Sets de alertas si el día del servidor cambió desde el último ciclo. */
   private resetTrackingIfNewDay(): void {
     const d = new Date();
     const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;

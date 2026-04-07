@@ -27,7 +27,12 @@ export class ReportsController {
    */
   @Get('kpis')
   @ApiOperation({ summary: 'KPIs de caja para el Dashboard Admin' })
-  @ApiQuery({ name: 'date', required: false, example: '2025-03-15', description: 'Día a consultar (YYYY-MM-DD). Por defecto: sesión activa de hoy.' })
+  @ApiQuery({
+    name: 'date',
+    required: false,
+    example: '2025-03-15',
+    description: 'Día a consultar (YYYY-MM-DD). Por defecto: sesión activa de hoy.',
+  })
   @ApiResponse({ status: 200, description: 'Métricas del día solicitado.' })
   getKpis(@Query('date') date?: string) {
     return this.reportsService.getKpis(date);
@@ -42,11 +47,14 @@ export class ReportsController {
    */
   @Get('revenue/trend')
   @ApiOperation({ summary: 'Tendencia de ingresos diarios por método de pago' })
-  @ApiQuery({ name: 'days', required: false, example: 7, description: 'Número de días hacia atrás a incluir (default: 7).' })
+  @ApiQuery({
+    name: 'days',
+    required: false,
+    example: 7,
+    description: 'Número de días hacia atrás a incluir (default: 7).',
+  })
   @ApiResponse({ status: 200, description: 'Array de días con cash/transfer/total.' })
-  getRevenueTrend(
-    @Query('days', new DefaultValuePipe(7), ParseIntPipe) days: number,
-  ) {
+  getRevenueTrend(@Query('days', new DefaultValuePipe(7), ParseIntPipe) days: number) {
     return this.reportsService.getRevenueTrend(days);
   }
 
@@ -156,17 +164,6 @@ export class ReportsController {
   }
 
   /**
-   * GET /api/v1/reports/transactions?dateFrom=&dateTo=[&format=csv]
-   *
-   * Historial plano de todos los movimientos de caja del período,
-   * listo para ser exportado a CSV por el frontend (PapaParse, etc.).
-   * Cada fila incluye: fecha, hora, tipo, concepto, efectivo, transferencia,
-   * total y usuario que lo registró.
-   *
-   * `format=csv` se acepta como indicador semántico; la respuesta siempre es JSON
-   * (el frontend realiza la conversión a CSV sin dependencias adicionales).
-   */
-  /**
    * GET /api/v1/reports/expenses?dateFrom=&dateTo=
    *
    * Listado de egresos del período con totales agregados por categoría
@@ -175,12 +172,11 @@ export class ReportsController {
   @Get('expenses')
   @ApiOperation({
     summary: 'Reporte de egresos del período',
-    description:
-      'Devuelve el listado de egresos con totales por categoría y método de pago.',
+    description: 'Devuelve el listado de egresos con totales por categoría y método de pago.',
   })
-  @ApiQuery({ name: 'date',     required: false, example: '2025-03-15' })
+  @ApiQuery({ name: 'date', required: false, example: '2025-03-15' })
   @ApiQuery({ name: 'dateFrom', required: false, example: '2025-03-01' })
-  @ApiQuery({ name: 'dateTo',   required: false, example: '2025-03-31' })
+  @ApiQuery({ name: 'dateTo', required: false, example: '2025-03-31' })
   @ApiResponse({ status: 200, description: 'Reporte de egresos.' })
   getExpenses(@Query() query: ReportQueryDto) {
     return this.reportsService.getExpenses(query);

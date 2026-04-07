@@ -1,8 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import {
-  NotFoundException,
-  BadRequestException,
-} from '@nestjs/common';
+import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ProductsService } from './products.service';
 import { Product } from './entities/product.entity';
@@ -94,7 +91,10 @@ describe('ProductsService', () => {
     });
 
     it('incluye productos inactivos si onlyActive es false', async () => {
-      productRepo.find.mockResolvedValue([mockProduct(), mockProduct({ id: 'p2', isActive: false })]);
+      productRepo.find.mockResolvedValue([
+        mockProduct(),
+        mockProduct({ id: 'p2', isActive: false }),
+      ]);
       await service.findAll({ onlyActive: false });
       expect(productRepo.find).toHaveBeenCalledWith(
         expect.objectContaining({ where: expect.not.objectContaining({ isActive: true }) }),
@@ -174,7 +174,9 @@ describe('ProductsService', () => {
 
     it('lanza BadRequestException si el stock es negativo', async () => {
       productRepo.findOne.mockResolvedValue(mockProduct());
-      await expect(service.update('product-uuid', { stock: -1 })).rejects.toThrow(BadRequestException);
+      await expect(service.update('product-uuid', { stock: -1 })).rejects.toThrow(
+        BadRequestException,
+      );
     });
   });
 
@@ -195,9 +197,7 @@ describe('ProductsService', () => {
 
   describe('getSummary', () => {
     it('retorna estadísticas de inventario', async () => {
-      productRepo.count
-        .mockResolvedValueOnce(10)
-        .mockResolvedValueOnce(3);
+      productRepo.count.mockResolvedValueOnce(10).mockResolvedValueOnce(3);
       mockQb.getCount.mockResolvedValue(2);
       mockQb.getRawOne.mockResolvedValue({ total: '15000' });
 

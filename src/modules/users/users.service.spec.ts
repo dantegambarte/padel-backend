@@ -1,9 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import {
-  NotFoundException,
-  ConflictException,
-  ForbiddenException,
-} from '@nestjs/common';
+import { NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { UsersService } from './users.service';
@@ -35,17 +31,12 @@ describe('UsersService', () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        UsersService,
-        { provide: getRepositoryToken(User), useValue: userRepo },
-      ],
+      providers: [UsersService, { provide: getRepositoryToken(User), useValue: userRepo }],
     }).compile();
 
     service = module.get<UsersService>(UsersService);
     jest.clearAllMocks();
   });
-
-  // ─── findAll ──────────────────────────────────────────────────────────────
 
   describe('findAll', () => {
     it('retorna lista de usuarios', async () => {
@@ -54,8 +45,6 @@ describe('UsersService', () => {
       expect(result).toHaveLength(1);
     });
   });
-
-  // ─── findOne ──────────────────────────────────────────────────────────────
 
   describe('findOne', () => {
     it('retorna el usuario si existe', async () => {
@@ -69,8 +58,6 @@ describe('UsersService', () => {
       await expect(service.findOne('missing')).rejects.toThrow(NotFoundException);
     });
   });
-
-  // ─── create ───────────────────────────────────────────────────────────────
 
   describe('create', () => {
     it('crea un usuario nuevo correctamente', async () => {
@@ -110,8 +97,6 @@ describe('UsersService', () => {
     });
   });
 
-  // ─── update ───────────────────────────────────────────────────────────────
-
   describe('update', () => {
     it('actualiza los campos permitidos', async () => {
       const user = mockUser();
@@ -124,9 +109,9 @@ describe('UsersService', () => {
 
     it('lanza ForbiddenException si el usuario intenta desactivarse a sí mismo', async () => {
       userRepo.findOne.mockResolvedValue(mockUser({ id: 'same-uuid' }));
-      await expect(
-        service.update('same-uuid', { isActive: false }, 'same-uuid'),
-      ).rejects.toThrow(ForbiddenException);
+      await expect(service.update('same-uuid', { isActive: false }, 'same-uuid')).rejects.toThrow(
+        ForbiddenException,
+      );
     });
 
     it('lanza NotFoundException si el usuario no existe', async () => {
@@ -134,8 +119,6 @@ describe('UsersService', () => {
       await expect(service.update('missing', {}, 'admin')).rejects.toThrow(NotFoundException);
     });
   });
-
-  // ─── resetPassword ────────────────────────────────────────────────────────
 
   describe('resetPassword', () => {
     it('restablece la contraseña y activa mustChangePassword', async () => {
@@ -188,13 +171,15 @@ describe('UsersService', () => {
       userRepo.save.mockResolvedValue(mockUser());
       jest.spyOn(bcrypt, 'hash').mockResolvedValue('hashed' as never);
 
-      const result = await service.resetPassword('user-uuid', { newPassword: 'pass' }, 'admin-uuid');
+      const result = await service.resetPassword(
+        'user-uuid',
+        { newPassword: 'pass' },
+        'admin-uuid',
+      );
 
       expect(result).toEqual({ success: true, message: expect.any(String) });
     });
   });
-
-  // ─── deactivate ───────────────────────────────────────────────────────────
 
   describe('deactivate', () => {
     it('desactiva al usuario correctamente', async () => {
@@ -207,13 +192,17 @@ describe('UsersService', () => {
     });
 
     it('lanza ForbiddenException si intenta desactivarse a sí mismo', async () => {
-      await expect(service.deactivate('same-uuid', 'same-uuid')).rejects.toThrow(ForbiddenException);
+      await expect(service.deactivate('same-uuid', 'same-uuid')).rejects.toThrow(
+        ForbiddenException,
+      );
     });
 
     it('lanza ForbiddenException si es el último administrador activo', async () => {
       userRepo.findOne.mockResolvedValue(mockUser({ id: 'admin-uuid', role: UserRole.ADMIN }));
       userRepo.count.mockResolvedValue(1);
-      await expect(service.deactivate('admin-uuid', 'other-uuid')).rejects.toThrow(ForbiddenException);
+      await expect(service.deactivate('admin-uuid', 'other-uuid')).rejects.toThrow(
+        ForbiddenException,
+      );
     });
 
     it('permite desactivar a un admin si hay más de uno activo', async () => {

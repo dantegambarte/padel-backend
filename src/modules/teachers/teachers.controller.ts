@@ -46,10 +46,20 @@ export class TeachersController {
    * ?includeInactive=true → activos + inactivos (exclusivo para admin).
    */
   @Get()
-  @ApiOperation({ summary: 'Listar profesores (activos por defecto; admin puede incluir inactivos)' })
-  @ApiQuery({ name: 'includeInactive', required: false, type: Boolean, description: 'true = incluir inactivos (solo admin)' })
+  @ApiOperation({
+    summary: 'Listar profesores (activos por defecto; admin puede incluir inactivos)',
+  })
+  @ApiQuery({
+    name: 'includeInactive',
+    required: false,
+    type: Boolean,
+    description: 'true = incluir inactivos (solo admin)',
+  })
   @ApiResponse({ status: 200, description: 'Lista de profesores.' })
-  @ApiResponse({ status: 403, description: 'Forbidden — solo admin puede pedir includeInactive=true.' })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden — solo admin puede pedir includeInactive=true.',
+  })
   findAll(
     @Query('includeInactive', new DefaultValuePipe(false), ParseBoolPipe) includeInactive: boolean,
     @CurrentUser('role') role: UserRole,
@@ -72,11 +82,11 @@ export class TeachersController {
   @ApiOperation({ summary: 'Reporte de liquidación de un profesor (admin)' })
   @ApiParam({ name: 'id', type: 'string', format: 'uuid' })
   @ApiQuery({ name: 'startDate', required: true, type: String, example: '2025-01-01' })
-  @ApiQuery({ name: 'endDate',   required: true, type: String, example: '2025-01-31' })
+  @ApiQuery({ name: 'endDate', required: true, type: String, example: '2025-01-31' })
   getReport(
     @Param('id', ParseUUIDPipe) id: string,
     @Query('startDate') startDate: string,
-    @Query('endDate')   endDate: string,
+    @Query('endDate') endDate: string,
   ) {
     return this.teachersSvc.getReport(id, startDate, endDate);
   }
@@ -102,10 +112,7 @@ export class TeachersController {
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Actualizar profesor (admin)' })
   @ApiParam({ name: 'id', type: 'string', format: 'uuid' })
-  update(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: UpdateTeacherDto,
-  ) {
+  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateTeacherDto) {
     return this.teachersSvc.update(id, dto);
   }
 

@@ -52,9 +52,6 @@ export class User {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 
-  // ── Relaciones (inversas, para queries JOIN) ─────────
-  // Se declaran acá para que TypeORM conozca el grafo completo.
-  // No se usan directamente en la mayoría de los endpoints.
   @OneToMany('Booking', 'createdByUser')
   bookings: any[];
 
