@@ -8,3 +8,6 @@
 
 # docs(search): agrega JSDoc al método search en SearchService
 adf4012ac90b0618b5adbebaa0c47156c17343ad
+
+# style: format, clean inline comments and add missing JSDoc across all modules
+36b8254
