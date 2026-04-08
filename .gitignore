@@ -29,3 +29,7 @@ Thumbs.db
 .claude
 .agents
 skills-lock.json
+
+# Scripts del VPS (Ignorados por seguridad)
+run-studio.sh
+*.sh
