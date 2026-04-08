@@ -1570,21 +1570,34 @@ export class CashRegisterService {
    */
   getBusinessDate(date: Date = new Date()): string {
     const CUTOFF_HOUR = 3;
-    const TZ = 'America/Argentina/Buenos_Aires';
+    const TZ = 'America/Argentina/Tucuman';
 
-    const hourParts = new Intl.DateTimeFormat('en-US', {
-      timeZone: TZ,
-      hour: 'numeric',
-      hour12: false,
-    }).formatToParts(date);
-    const currentHour = parseInt(hourParts.find((p) => p.type === 'hour')?.value ?? '12', 10);
+    // Get the current date string in Argentina timezone first (YYYY-MM-DD).
+    // Using toLocaleDateString with explicit TZ is safe regardless of server timezone.
+    const argDateStr = date.toLocaleDateString('en-CA', { timeZone: TZ });
+
+    const currentHour = parseInt(
+      new Intl.DateTimeFormat('en-US', {
+        timeZone: TZ,
+        hour: 'numeric',
+        hour12: false,
+      })
+        .formatToParts(date)
+        .find((p) => p.type === 'hour')?.value ?? '12',
+      10,
+    );
 
     if (currentHour < CUTOFF_HOUR) {
-      const yesterday = new Date(date);
-      yesterday.setDate(yesterday.getDate() - 1);
-      return yesterday.toLocaleDateString('en-CA', { timeZone: TZ });
+      // Compute the previous calendar day purely from the Argentina date string.
+      // We use noon UTC as the intermediate timestamp so the resulting Date is never
+      // ambiguous near a midnight boundary regardless of the server's local timezone.
+      // toLocaleDateString with an explicit TZ is then used — never toISOString() —
+      // to stay consistent with how argDateStr itself was obtained.
+      const [y, m, d] = argDateStr.split('-').map(Number);
+      const prev = new Date(Date.UTC(y, m - 1, d - 1, 12, 0, 0));
+      return prev.toLocaleDateString('en-CA', { timeZone: TZ });
     }
 
-    return date.toLocaleDateString('en-CA', { timeZone: TZ });
+    return argDateStr;
   }
 }

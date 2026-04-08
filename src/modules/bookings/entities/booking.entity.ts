@@ -8,7 +8,6 @@ import {
   JoinColumn,
   CreateDateColumn,
   UpdateDateColumn,
-  Unique,
   Index,
 } from 'typeorm';
 import { Court } from '../../courts/entities/court.entity';
@@ -37,7 +36,6 @@ export enum PriceType {
  * condiciones de carrera ante peticiones concurrentes.
  */
 @Entity('bookings')
-@Unique('UQ_booking_court_date_hour', ['courtId', 'date', 'hour'])
 @Index('IDX_booking_date', ['date'])
 @Index('IDX_booking_court_date', ['courtId', 'date'])
 export class Booking {
