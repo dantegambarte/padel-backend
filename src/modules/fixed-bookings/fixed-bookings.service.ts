@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 
@@ -64,6 +64,9 @@ export class FixedBookingsService {
     if (!court) {
       throw new NotFoundException(`Cancha con ID ${dto.courtId} no encontrada.`);
     }
+    if (!court.isActive) {
+      throw new BadRequestException('No se pueden asignar turnos a una cancha inactiva.');
+    }
 
     const fixed = this.fixedRepo.create({
       clientName: dto.clientName,
@@ -93,6 +96,16 @@ export class FixedBookingsService {
   async update(id: string, dto: UpdateFixedBookingDto, user: User): Promise<FixedBooking> {
     const fixed = await this.findOne(id);
     const wasInactive = !fixed.isActive;
+
+    if (dto.courtId !== undefined && dto.courtId !== fixed.courtId) {
+      const newCourt = await this.courtRepo.findOne({ where: { id: dto.courtId } });
+      if (!newCourt) {
+        throw new NotFoundException(`Cancha con ID ${dto.courtId} no encontrada.`);
+      }
+      if (!newCourt.isActive) {
+        throw new BadRequestException('No se pueden asignar turnos a una cancha inactiva.');
+      }
+    }
 
     Object.assign(fixed, {
       ...(dto.clientName !== undefined && { clientName: dto.clientName }),
