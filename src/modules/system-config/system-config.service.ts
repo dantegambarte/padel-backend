@@ -47,13 +47,23 @@ export class SystemConfigService {
     return this.configRepo.save(config);
   }
 
-  /** Actualiza múltiples claves en una sola operación. */
+  /** Actualiza múltiples claves en una sola operación (crea la clave si no existe). */
   async bulkUpdate(updates: Record<string, string>): Promise<{ key: string; value: string }[]> {
     const entries = Object.entries(updates ?? {});
     if (entries.length === 0) {
       return this.findAll();
     }
-    await Promise.all(entries.map(([key, value]) => this.update(key, value)));
+    await Promise.all(
+      entries.map(async ([key, value]) => {
+        const existing = await this.configRepo.findOne({ where: { key } });
+        if (existing) {
+          existing.value = value;
+          return this.configRepo.save(existing);
+        } else {
+          return this.configRepo.save(this.configRepo.create({ key, value }));
+        }
+      }),
+    );
     return this.findAll();
   }
 
