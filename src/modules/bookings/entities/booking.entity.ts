@@ -161,6 +161,23 @@ export class Booking {
   isConfirmed: boolean;
 
   /**
+   * Monto de seña esperada por transferencia, heredado del turno fijo.
+   * Presente solo en bookings generados a partir de un FixedBooking con
+   * `recurringDepositAmount > 0`. El pago NO se aplica hasta que el admin
+   * llame al endpoint confirm-expected-deposit.
+   * null cuando el turno fue creado manualmente o no tiene seña recurrente.
+   */
+  @Column({
+    name: 'expected_deposit_amount',
+    type: 'numeric',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+    default: null,
+  })
+  expectedDepositAmount: number | null;
+
+  /**
    * FK nullable al profesor vinculado a este turno.
    * Cuando está presente el priceType suele ser 'professor'.
    */

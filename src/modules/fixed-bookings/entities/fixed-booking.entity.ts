@@ -59,6 +59,22 @@ export class FixedBooking {
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 
+  /**
+   * Monto de seña recurrente esperada por transferencia.
+   * Si está definido, cada Booking generado por este turno fijo
+   * nace con `expectedDepositAmount` igual a este valor.
+   * El pago NO se registra automáticamente; requiere confirmación manual.
+   */
+  @Column({
+    name: 'recurring_deposit_amount',
+    type: 'numeric',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+    default: null,
+  })
+  recurringDepositAmount: number | null;
+
   /** FK nullable al profesor vinculado a este turno fijo. */
   @Column({ name: 'teacher_id', type: 'uuid', nullable: true })
   teacherId: string | null;

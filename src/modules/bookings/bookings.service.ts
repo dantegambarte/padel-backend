@@ -39,6 +39,51 @@ export class BookingsService {
     private readonly cashRegisterService: CashRegisterService,
   ) {}
 
+  /**
+   * Retorna los turnos con seña recurrente pendiente de confirmación.
+   *
+   * Condiciones:
+   * - expectedDepositAmount IS NOT NULL AND > 0
+   * - Estado distinto de CANCELLED y COMPLETED
+   * - Fecha >= hoy (no muestra turnos pasados sin confirmar para no saturar)
+   * - El pago existente (si lo hay) no cubre el monto esperado
+   *
+   * Usado por el panel de alertas del header.
+   */
+  /**
+   * Retorna los turnos con seña recurrente pendiente de confirmación.
+   *
+   * @param daysAhead  0 = solo hoy (default). 1 = hoy + mañana. N = ventana de N días.
+   *                   La comparación usa fechas en formato YYYY-MM-DD calculadas
+   *                   con hora local del servidor (UTC-3) para evitar desfases.
+   */
+  async findPendingExpectedDeposits(daysAhead = 0): Promise<Booking[]> {
+    const fromDate = new Date();
+    const toDate = new Date();
+    toDate.setDate(toDate.getDate() + Math.max(0, daysAhead));
+
+    const toYMD = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+    const from = toYMD(fromDate);
+    const to = toYMD(toDate);
+
+    return this.bookingRepo
+      .createQueryBuilder('booking')
+      .leftJoinAndSelect('booking.court', 'court')
+      .leftJoinAndSelect('booking.payment', 'payment')
+      .where('booking.expectedDepositAmount IS NOT NULL')
+      .andWhere('booking.expectedDepositAmount > 0')
+      .andWhere('booking.status NOT IN (:...excluded)', {
+        excluded: [BookingStatus.CANCELLED, BookingStatus.COMPLETED],
+      })
+      .andWhere('booking.date BETWEEN :from AND :to', { from, to })
+      .andWhere('(payment.id IS NULL OR payment.amount_transfer < booking.expected_deposit_amount)')
+      .orderBy('booking.date', 'ASC')
+      .addOrderBy('booking.hour', 'ASC')
+      .getMany();
+  }
+
   /** Retorna los turnos de una fecha, opcionalmente filtrados por cancha. */
   async findByDate(query: QueryBookingsDto): Promise<Booking[]> {
     const qb = this.bookingRepo
@@ -191,8 +236,7 @@ export class BookingsService {
       });
       await queryRunner.manager.save(BookingPayment, payment);
 
-      const totalPaid = (dto.amountCash ?? 0) + (dto.amountTransfer ?? 0);
-      if (totalPaid > 0) {
+      if (amountCash > 0) {
         const session = await this.cashRegisterService.getActiveSessionOrFail(queryRunner, user.id);
 
         await this.cashRegisterService.registerTransaction(queryRunner, {
@@ -200,8 +244,8 @@ export class BookingsService {
           type: TransactionType.BOOKING,
           referenceId: savedBooking.id,
           concept: `Turno ${court.name} - ${dto.hour}hs (${dto.clientName})`,
-          amountCash: dto.amountCash ?? 0,
-          amountTransfer: dto.amountTransfer ?? 0,
+          amountCash,
+          amountTransfer,
           createdByUserId: user.id,
         });
       }
@@ -403,7 +447,7 @@ export class BookingsService {
         const deltaCash = newCash - prevCash;
         const deltaTransfer = newTransfer - prevTransfer;
 
-        if (deltaCash > 0 || deltaTransfer > 0) {
+        if (deltaCash > 0) {
           const court = await queryRunner.manager.findOne(Court, {
             where: { id: booking.courtId },
           });
@@ -443,6 +487,85 @@ export class BookingsService {
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(`ROLLBACK en actualización de turno ${id}: ${error.message}`, error.stack);
+      this.handleDbError(error);
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  /**
+   * Confirma la seña esperada de un turno fijo con un clic.
+   *
+   * Reglas:
+   * - El booking debe tener `expectedDepositAmount > 0`.
+   * - Si ya existe un pago por transferencia >= expectedDepositAmount, lanza error
+   *   (idempotencia: evita duplicar la confirmación).
+   * - No requiere sesión de caja abierta (es transferencia).
+   * - Crea o incrementa `BookingPayment.amountTransfer` dentro de una transacción.
+   * - Limpia `expectedDepositAmount` del booking para que el botón desaparezca en UI.
+   */
+  async confirmExpectedDeposit(id: string, user: User): Promise<Booking> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const booking = await queryRunner.manager.findOne(Booking, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (!booking) {
+        throw new NotFoundException(`Turno con ID ${id} no encontrado.`);
+      }
+
+      const expected = Number(booking.expectedDepositAmount ?? 0);
+
+      if (expected <= 0) {
+        throw new BadRequestException(
+          'Este turno no tiene una seña recurrente esperada configurada.',
+        );
+      }
+
+      const existingPayment = await queryRunner.manager.findOne(BookingPayment, {
+        where: { bookingId: id },
+      });
+
+      const alreadyTransferred = Number(existingPayment?.amountTransfer ?? 0);
+      if (alreadyTransferred >= expected) {
+        throw new BadRequestException(
+          `La seña ya fue registrada (transferencia: $${alreadyTransferred}).`,
+        );
+      }
+
+      if (existingPayment) {
+        await queryRunner.manager.increment(
+          BookingPayment,
+          { id: existingPayment.id },
+          'amountTransfer',
+          expected,
+        );
+      } else {
+        const payment = queryRunner.manager.create(BookingPayment, {
+          bookingId: id,
+          amountCash: 0,
+          amountTransfer: expected,
+        });
+        await queryRunner.manager.save(BookingPayment, payment);
+      }
+
+      await queryRunner.manager.update(Booking, { id }, { expectedDepositAmount: null });
+
+      await queryRunner.commitTransaction();
+
+      this.logger.log(
+        `Seña confirmada: turno ${id} — $${expected} por transferencia (por ${user.username})`,
+      );
+
+      return this.findOne(id);
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      this.logger.warn(`ROLLBACK en confirmación de seña (turno ${id}): ${error.message}`);
       this.handleDbError(error);
     } finally {
       await queryRunner.release();

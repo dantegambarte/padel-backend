@@ -6,6 +6,7 @@ import {
   IsOptional,
   IsInt,
   IsIn,
+  IsNumber,
   Min,
   Max,
   MaxLength,
@@ -75,4 +76,13 @@ export class CreateFixedBookingDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiPropertyOptional({
+    example: 3000,
+    description: 'Monto de seña recurrente esperada por transferencia. Si se define, cada booking generado heredará este valor en expectedDepositAmount.',
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  recurringDepositAmount?: number;
 }

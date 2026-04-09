@@ -79,6 +79,7 @@ export class FixedBookingsService {
       startDate: dto.startDate,
       notes: dto.notes ?? null,
       teacherId: dto.teacherId ?? null,
+      recurringDepositAmount: dto.recurringDepositAmount ?? null,
     });
 
     const saved = await this.fixedRepo.save(fixed);
@@ -90,8 +91,15 @@ export class FixedBookingsService {
   }
 
   /**
-   * Actualiza un turno fijo. Si se reactiva (isActive: true desde false),
-   * genera los turnos pendientes de las próximas semanas.
+   * Actualiza un turno fijo con cascada opcional a las instancias futuras.
+   *
+   * Si el DTO toca propiedades estructurales (dayOfWeek, hour, durationMinutes, courtId),
+   * se ejecuta una cascada dentro de una transacción:
+   *   1. Se eliminan los Bookings futuros con estado 'booked' y SIN pago registrado.
+   *      Los que ya tienen pago se conservan intactos para no romper la contabilidad.
+   *   2. Se regeneran los Bookings futuros con los nuevos datos.
+   *
+   * Si solo cambian datos no-estructurales (clientName, notes, etc.), la cascada se omite.
    */
   async update(id: string, dto: UpdateFixedBookingDto, user: User): Promise<FixedBooking> {
     const fixed = await this.findOne(id);
@@ -99,38 +107,141 @@ export class FixedBookingsService {
 
     if (dto.courtId !== undefined && dto.courtId !== fixed.courtId) {
       const newCourt = await this.courtRepo.findOne({ where: { id: dto.courtId } });
-      if (!newCourt) {
-        throw new NotFoundException(`Cancha con ID ${dto.courtId} no encontrada.`);
-      }
-      if (!newCourt.isActive) {
+      if (!newCourt) throw new NotFoundException(`Cancha con ID ${dto.courtId} no encontrada.`);
+      if (!newCourt.isActive)
         throw new BadRequestException('No se pueden asignar turnos a una cancha inactiva.');
-      }
     }
 
-    Object.assign(fixed, {
-      ...(dto.clientName !== undefined && { clientName: dto.clientName }),
-      ...(dto.phoneNumber !== undefined && { phoneNumber: dto.phoneNumber }),
-      ...(dto.dayOfWeek !== undefined && { dayOfWeek: dto.dayOfWeek }),
-      ...(dto.hour !== undefined && { hour: dto.hour }),
-      ...(dto.durationMinutes !== undefined && { durationMinutes: dto.durationMinutes }),
-      ...(dto.courtId !== undefined && { courtId: dto.courtId }),
-      ...(dto.isActive !== undefined && { isActive: dto.isActive }),
-      ...(dto.startDate !== undefined && { startDate: dto.startDate }),
-      ...(dto.notes !== undefined && { notes: dto.notes }),
-      ...(dto.teacherId !== undefined && { teacherId: dto.teacherId ?? null }),
-    });
+    const structuralChange =
+      (dto.dayOfWeek !== undefined && dto.dayOfWeek !== fixed.dayOfWeek) ||
+      (dto.hour !== undefined && dto.hour !== fixed.hour) ||
+      (dto.durationMinutes !== undefined && dto.durationMinutes !== fixed.durationMinutes) ||
+      (dto.courtId !== undefined && dto.courtId !== fixed.courtId);
 
-    const saved = await this.fixedRepo.save(fixed);
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-    if (wasInactive && saved.isActive) {
-      const court = await this.courtRepo.findOne({ where: { id: saved.courtId } });
-      if (court) {
-        const generated = await this.generateBookings(saved, court, user);
-        this.logger.log(`Turno fijo ${id} reactivado. Turnos generados: ${generated}.`);
+    try {
+      Object.assign(fixed, {
+        ...(dto.clientName !== undefined && { clientName: dto.clientName }),
+        ...(dto.phoneNumber !== undefined && { phoneNumber: dto.phoneNumber }),
+        ...(dto.dayOfWeek !== undefined && { dayOfWeek: dto.dayOfWeek }),
+        ...(dto.hour !== undefined && { hour: dto.hour }),
+        ...(dto.durationMinutes !== undefined && { durationMinutes: dto.durationMinutes }),
+        ...(dto.courtId !== undefined && { courtId: dto.courtId }),
+        ...(dto.isActive !== undefined && { isActive: dto.isActive }),
+        ...(dto.startDate !== undefined && { startDate: dto.startDate }),
+        ...(dto.notes !== undefined && { notes: dto.notes }),
+        ...(dto.teacherId !== undefined && { teacherId: dto.teacherId ?? null }),
+        ...(dto.recurringDepositAmount !== undefined && {
+          recurringDepositAmount: dto.recurringDepositAmount ?? null,
+        }),
+      });
+
+      const saved = await queryRunner.manager.save(FixedBooking, fixed);
+
+      if (structuralChange) {
+        const today = this.localDateStr();
+
+        const toDelete = await queryRunner.manager
+          .createQueryBuilder(Booking, 'b')
+          .leftJoin('b.payment', 'payment')
+          .where('b.fixed_booking_id = :id', { id })
+          .andWhere('b.date > :today', { today })
+          .andWhere('b.status = :status', { status: BookingStatus.BOOKED })
+          .andWhere(
+            '(payment.id IS NULL OR (payment.amount_cash = 0 AND payment.amount_transfer = 0))',
+          )
+          .getMany();
+
+        if (toDelete.length > 0) {
+          const ids = toDelete.map((b) => b.id);
+          await queryRunner.manager
+            .createQueryBuilder()
+            .delete()
+            .from(Booking)
+            .whereInIds(ids)
+            .execute();
+
+          this.logger.log(
+            `Cascada turno fijo ${id}: eliminados ${ids.length} booking(s) futuros sin pago.`,
+          );
+        }
+
+        const court = await queryRunner.manager.findOne(Court, { where: { id: saved.courtId } });
+        if (court) {
+          const dates = this.getNextOccurrences(
+            saved.startDate,
+            saved.dayOfWeek,
+            WEEKS_TO_GENERATE,
+          );
+          const jsDayOfWeek = saved.dayOfWeek === 7 ? 0 : saved.dayOfWeek;
+          const { amount: priceAmount, shiftName: appliedShiftName } =
+            await this.calculateDynamicPrice(jsDayOfWeek, saved.hour, saved.durationMinutes);
+
+          let regenerated = 0;
+          for (const date of dates) {
+            const existing = await queryRunner.manager.findOne(Booking, {
+              where: { courtId: saved.courtId, date, hour: saved.hour },
+            });
+            if (existing) {
+              this.logger.warn(
+                `Cascada: slot ocupado ${saved.courtId} ${date} ${saved.hour} — omitido.`,
+              );
+              continue;
+            }
+
+            const booking = queryRunner.manager.create(Booking, {
+              courtId: saved.courtId,
+              date,
+              hour: saved.hour,
+              clientName: saved.clientName,
+              durationMinutes: saved.durationMinutes,
+              priceType: saved.teacherId ? PriceType.PROFESSOR : PriceType.STANDARD,
+              priceAmount,
+              appliedShiftName,
+              status: BookingStatus.BOOKED,
+              createdByUserId: user.id,
+              fixedBookingId: saved.id,
+              teacherId: saved.teacherId ?? null,
+              expectedDepositAmount: saved.recurringDepositAmount ?? null,
+            });
+
+            try {
+              await queryRunner.manager.save(Booking, booking);
+              regenerated++;
+            } catch (err: any) {
+              if (err?.code === '23505') {
+                this.logger.warn(`Cascada: conflicto al insertar ${date} ${saved.hour} — omitido.`);
+              } else {
+                throw err;
+              }
+            }
+          }
+
+          this.logger.log(`Cascada turno fijo ${id}: regenerados ${regenerated} booking(s).`);
+        }
+      } else if (wasInactive && saved.isActive) {
+        const court = await queryRunner.manager.findOne(Court, { where: { id: saved.courtId } });
+        if (court) {
+          const generated = await this.generateBookings(saved, court, user);
+          this.logger.log(`Turno fijo ${id} reactivado. Turnos generados: ${generated}.`);
+        }
       }
-    }
 
-    return this.findOne(id);
+      await queryRunner.commitTransaction();
+      return this.findOne(id);
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      this.logger.error(
+        `ROLLBACK en actualización del turno fijo ${id}: ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   /**
@@ -144,31 +255,88 @@ export class FixedBookingsService {
   }
 
   /**
-   * Borrado en cascada: elimina todas las reservas individuales futuras
-   * con estado 'booked' asociadas al turno fijo, luego elimina el turno fijo.
-   * Las reservas pasadas o en curso no se tocan.
+  /**
+   * Borrado en cascada dentro de una transacción atómica.
+   *
+   * Elimina:
+   *   - Los Bookings futuros (date >= hoy) con estado 'booked' y SIN pago registrado.
+   *   - El FixedBooking padre.
+   *
+   * Preserva:
+   *   - Bookings pasados (historial contable intacto).
+   *   - Bookings con pago (cash > 0 o transfer > 0): el admin los resuelve manualmente.
+   *   - Bookings con estado playing/completed/cancelled.
+   *
+   * Si algo falla, el ROLLBACK garantiza que no se borre nada parcialmente.
+   * Retorna cuántas instancias futuras fueron eliminadas y cuántas fueron preservadas por tener pago.
    */
-  async deleteCascade(id: string): Promise<{ deleted: number }> {
+  async deleteCascade(id: string): Promise<{ deleted: number; preserved: number }> {
     await this.findOne(id);
 
     const today = this.localDateStr();
 
-    const result = await this.bookingRepo
-      .createQueryBuilder()
-      .delete()
-      .from(Booking)
-      .where('fixed_booking_id = :id', { id })
-      .andWhere('date >= :today', { today })
-      .andWhere('status = :status', { status: BookingStatus.BOOKED })
-      .execute();
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-    await this.fixedRepo.delete(id);
+    try {
+      const withoutPayment = await queryRunner.manager
+        .createQueryBuilder(Booking, 'b')
+        .leftJoin('b.payment', 'payment')
+        .where('b.fixed_booking_id = :id', { id })
+        .andWhere('b.date >= :today', { today })
+        .andWhere('b.status = :status', { status: BookingStatus.BOOKED })
+        .andWhere(
+          '(payment.id IS NULL OR (payment.amount_cash = 0 AND payment.amount_transfer = 0))',
+        )
+        .getMany();
 
-    const deleted = result.affected ?? 0;
-    this.logger.log(
-      `Turno fijo ${id} eliminado en cascada. Reservas futuras borradas: ${deleted}.`,
-    );
-    return { deleted };
+      const withPayment = await queryRunner.manager
+        .createQueryBuilder(Booking, 'b')
+        .leftJoin('b.payment', 'payment')
+        .where('b.fixed_booking_id = :id', { id })
+        .andWhere('b.date >= :today', { today })
+        .andWhere('b.status = :status', { status: BookingStatus.BOOKED })
+        .andWhere(
+          'payment.id IS NOT NULL AND (payment.amount_cash > 0 OR payment.amount_transfer > 0)',
+        )
+        .getCount();
+
+      if (withoutPayment.length > 0) {
+        await queryRunner.manager
+          .createQueryBuilder()
+          .delete()
+          .from(Booking)
+          .whereInIds(withoutPayment.map((b) => b.id))
+          .execute();
+      }
+
+      if (withPayment > 0) {
+        await queryRunner.manager
+          .createQueryBuilder()
+          .update(Booking)
+          .set({ fixedBookingId: null })
+          .where('fixed_booking_id = :id', { id })
+          .andWhere('date >= :today', { today })
+          .execute();
+      }
+
+      await queryRunner.manager.delete(FixedBooking, { id });
+
+      await queryRunner.commitTransaction();
+
+      this.logger.log(
+        `Turno fijo ${id} eliminado. Reservas borradas: ${withoutPayment.length}. Preservadas (con pago): ${withPayment}.`,
+      );
+
+      return { deleted: withoutPayment.length, preserved: withPayment };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      this.logger.error(`ROLLBACK en borrado de turno fijo ${id}: ${error.message}`, error.stack);
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   /**
@@ -226,6 +394,7 @@ export class FixedBookingsService {
         createdByUserId: user.id,
         fixedBookingId: fixed.id,
         teacherId: fixed.teacherId ?? null,
+        expectedDepositAmount: fixed.recurringDepositAmount ?? null,
       });
 
       try {
