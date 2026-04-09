@@ -71,6 +71,26 @@ export class CashRegisterService {
 
       let commercialDate = this.getBusinessDate();
 
+      const orphanedDays: { date: string }[] = await qr.query(
+        `SELECT DISTINCT cs.date
+         FROM cash_sessions cs
+         WHERE cs.status = 'closed'
+           AND cs.date < $1
+           AND NOT EXISTS (
+             SELECT 1 FROM daily_closures dc WHERE dc.date = cs.date
+           )
+         ORDER BY cs.date ASC
+         LIMIT 1`,
+        [commercialDate],
+      );
+
+      if (orphanedDays.length > 0) {
+        throw new ConflictException(
+          `No podés abrir un nuevo turno. La jornada del ${orphanedDays[0].date} está pendiente de cierre. ` +
+            `Finalizá esa jornada antes de continuar.`,
+        );
+      }
+
       const dayAlreadyClosed = await qr.manager.findOne(DailyClosureRecord, {
         where: { date: commercialDate },
       });
@@ -533,8 +553,18 @@ export class CashRegisterService {
   }
 
   /**
-   * Valida que no exista ninguna sesión OPEN y devuelve el consolidado del día comercial actual.
-   * Si hay una sesión abierta lanza 409 — el cajero debe cerrar su turno antes.
+   * Finaliza la Jornada Comercial activa.
+   *
+   * Estrategia de fecha contable — agrupación estricta por `date`:
+   *   Busca todas las sesiones CERRADAS que aún no tienen un DailyClosureRecord
+   *   para su fecha contable (sesiones "huérfanas"). Las agrupa por `date` y cierra
+   *   ÚNICAMENTE las de la fecha más antigua. Esto garantiza:
+   *     a) Que nunca se fusionen sesiones de días distintos en un mismo cierre.
+   *     b) Que si hay acumulación (días olvidados), se cierren en orden cronológico,
+   *        forzando al operador a repetir la acción una vez por cada jornada pendiente.
+   *
+   *   La guardia en `openSession` previene la acumulación en condiciones normales.
+   *   Este método es el segundo nivel de defensa.
    */
   async closeDay(): Promise<{
     date: string;
@@ -570,19 +600,7 @@ export class CashRegisterService {
       );
     }
 
-    const commercialDateStr = this.getBusinessDate();
-    const existingClosure = await this.dailyClosureRepo.findOne({
-      where: { date: commercialDateStr },
-    });
-    if (existingClosure) {
-      throw new BadRequestException(
-        `La jornada comercial del ${commercialDateStr} ya fue cerrada. No se puede volver a cerrar.`,
-      );
-    }
-
-    const commercialDayStart = this.getCommercialDayStart();
-
-    const rows = await this.dataSource.query<
+    const allOrphanedRows = await this.dataSource.query<
       {
         id: string;
         date: string;
@@ -615,15 +633,40 @@ export class CashRegisterService {
        FROM cash_sessions cs
        LEFT JOIN users u        ON u.id  = cs.opened_by_user_id
        LEFT JOIN transactions t ON t.cash_session_id = cs.id
-       WHERE cs.status = 'closed' AND cs.closed_at >= $1
+       WHERE cs.status = 'closed'
+         AND NOT EXISTS (
+           SELECT 1 FROM daily_closures dc WHERE dc.date = cs.date
+         )
        GROUP BY cs.id, u.full_name, u.username
-       ORDER BY cs.opened_at ASC`,
-      [commercialDayStart],
+       ORDER BY cs.date ASC, cs.opened_at ASC`,
+      [],
     );
 
-    if (!rows.length) {
+    if (!allOrphanedRows.length) {
       throw new NotFoundException(
-        'No hay turnos cerrados en el día comercial activo. Cerrá al menos un turno antes de realizar el Cierre de Jornada.',
+        'No hay turnos cerrados pendientes de Cierre de Jornada. Cerrá al menos un turno antes de continuar.',
+      );
+    }
+
+    const uniqueDates = [...new Set(allOrphanedRows.map((r) => r.date))].sort();
+    if (uniqueDates.length > 1) {
+      this.logger.warn(
+        `closeDay: se detectaron sesiones huérfanas de ${uniqueDates.length} fechas distintas ` +
+          `(${uniqueDates.join(', ')}). Se cerrará únicamente la más antigua: ${uniqueDates[0]}.`,
+      );
+    }
+
+    // Procesar solo la fecha contable más antigua pendiente.
+    const commercialDateStr = uniqueDates[0];
+    const rows = allOrphanedRows.filter((r) => r.date === commercialDateStr);
+
+    // Guardia contra race condition / doble clic.
+    const existingClosure = await this.dailyClosureRepo.findOne({
+      where: { date: commercialDateStr },
+    });
+    if (existingClosure) {
+      throw new BadRequestException(
+        `La jornada comercial del ${commercialDateStr} ya fue cerrada. No se puede volver a cerrar.`,
       );
     }
 
@@ -653,13 +696,11 @@ export class CashRegisterService {
       ? sessions.reduce((s, sess) => s + (sess.cashCounted ?? 0), 0)
       : null;
 
-    const date = rows[0].date;
-
     const closureRecord = this.dailyClosureRepo.create({ date: commercialDateStr });
     await this.dailyClosureRepo.save(closureRecord);
     this.logger.log(`Cierre de Jornada registrado para la fecha comercial: ${commercialDateStr}`);
 
-    return { date, totalExpected, totalCounted, sessions };
+    return { date: commercialDateStr, totalExpected, totalCounted, sessions };
   }
 
   /**
