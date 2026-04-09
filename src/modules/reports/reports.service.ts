@@ -345,6 +345,7 @@ export class ReportsService {
       category: string;
       paymentMethod: string;
       amount: number;
+      createdByUser: { id: string; fullName: string; role: string } | null;
     }[];
     totalAmount: number;
     byCategory: { category: string; total: number }[];
@@ -360,19 +361,26 @@ export class ReportsService {
         category: string;
         payment_method: string;
         amount: string;
+        creator_id: string | null;
+        creator_full_name: string | null;
+        creator_role: string | null;
       }[]
     >(
       `SELECT
-         id,
-         date::text,
-         description,
-         category,
-         payment_method,
-         amount
-       FROM expenses
-       WHERE date BETWEEN $1::date AND $2::date
-         AND deleted_at IS NULL
-       ORDER BY date DESC, created_at DESC`,
+         e.id,
+         e.date::text,
+         e.description,
+         e.category,
+         e.payment_method,
+         e.amount,
+         u.id           AS creator_id,
+         u.full_name    AS creator_full_name,
+         u.role         AS creator_role
+       FROM expenses e
+       LEFT JOIN users u ON u.id = e.created_by_user_id
+       WHERE e.date BETWEEN $1::date AND $2::date
+         AND e.deleted_at IS NULL
+       ORDER BY e.date DESC, e.created_at DESC`,
       [from, to],
     );
 
@@ -417,6 +425,9 @@ export class ReportsService {
       category: r.category,
       paymentMethod: r.payment_method,
       amount: parseFloat(r.amount),
+      createdByUser: r.creator_id
+        ? { id: r.creator_id, fullName: r.creator_full_name!, role: r.creator_role! }
+        : null,
     }));
 
     return {

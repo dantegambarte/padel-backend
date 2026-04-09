@@ -98,7 +98,7 @@ export class BookingsController {
    */
   @Get('pending-expected-deposits')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.EMPLOYEE)
   @ApiOperation({
     summary: 'Señas recurrentes pendientes de confirmación',
     description:
