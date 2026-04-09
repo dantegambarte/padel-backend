@@ -78,7 +78,7 @@ export class BookingsService {
         excluded: [BookingStatus.CANCELLED, BookingStatus.COMPLETED],
       })
       .andWhere('booking.date BETWEEN :from AND :to', { from, to })
-      .andWhere('(payment.id IS NULL OR payment.amount_transfer < booking.expected_deposit_amount)')
+      .andWhere('(payment.id IS NULL OR payment.amount_transfer < booking.expectedDepositAmount)')
       .orderBy('booking.date', 'ASC')
       .addOrderBy('booking.hour', 'ASC')
       .getMany();
