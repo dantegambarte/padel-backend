@@ -146,16 +146,16 @@ export class ProductsService {
       await this.validateCategory(dto.categoryId);
     }
 
-    const patch: Partial<Record<string, any>> = {};
+    const fields: Partial<Record<string, any>> = {};
 
-    if (dto.name !== undefined) patch.name = dto.name.trim();
-    if (dto.categoryId !== undefined) patch.categoryId = dto.categoryId ?? null;
-    if (dto.costPrice !== undefined) patch.costPrice = dto.costPrice;
-    if (dto.salePrice !== undefined) patch.salePrice = dto.salePrice;
-    if (dto.minStock !== undefined) patch.minStock = dto.minStock;
-    if (dto.isFeatured !== undefined) patch.isFeatured = dto.isFeatured;
-    if (dto.isActive !== undefined) patch.isActive = dto.isActive;
-    if (dto.icon !== undefined) patch.icon = dto.icon;
+    if (dto.name !== undefined) fields.name = dto.name.trim();
+    if (dto.categoryId !== undefined) fields.categoryId = dto.categoryId ?? null;
+    if (dto.costPrice !== undefined) fields.costPrice = dto.costPrice;
+    if (dto.salePrice !== undefined) fields.salePrice = dto.salePrice;
+    if (dto.minStock !== undefined) fields.minStock = dto.minStock;
+    if (dto.isFeatured !== undefined) fields.isFeatured = dto.isFeatured;
+    if (dto.isActive !== undefined) fields.isActive = dto.isActive;
+    if (dto.icon !== undefined) fields.icon = dto.icon;
 
     if (dto.stock !== undefined) {
       if (dto.stock < 0) {
@@ -165,10 +165,13 @@ export class ProductsService {
       this.logger.log(
         `Ajuste manual de stock: "${product.name}" ${product.stock} → ${dto.stock} (${diff >= 0 ? '+' : ''}${diff})`,
       );
-      patch.stock = dto.stock;
+      fields.stock = dto.stock;
     }
 
-    await this.productRepo.update(id, patch);
+    if (Object.keys(fields).length > 0) {
+      await this.productRepo.update(id, fields);
+    }
+
     return this.findOne(id);
   }
 
