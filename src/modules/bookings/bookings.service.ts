@@ -247,7 +247,7 @@ export class BookingsService {
       });
       await queryRunner.manager.save(BookingPayment, payment);
 
-      if (amountCash > 0) {
+      if (amountCash > 0 || amountTransfer > 0) {
         const session = await this.cashRegisterService.getActiveSessionOrFail(queryRunner, user.id);
 
         await this.cashRegisterService.registerTransaction(queryRunner, {
@@ -458,7 +458,7 @@ export class BookingsService {
         const deltaCash = newCash - prevCash;
         const deltaTransfer = newTransfer - prevTransfer;
 
-        if (deltaCash > 0) {
+        if (deltaCash > 0 || deltaTransfer > 0) {
           const court = await queryRunner.manager.findOne(Court, {
             where: { id: booking.courtId },
           });
