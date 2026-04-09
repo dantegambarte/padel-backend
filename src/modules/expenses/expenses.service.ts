@@ -29,9 +29,9 @@ function businessDateToday(): string {
 
 export interface FindAllOptions {
   role: UserRole;
-  /** Sólo aplica para admin: filtro de rango de fechas. */
   from?: string;
   to?: string;
+  userId?: string;
 }
 
 @Injectable()
@@ -88,8 +88,8 @@ export class ExpensesService {
   /**
    * Devuelve egresos según el rol del solicitante:
    * - ADMIN: todos los egresos, opcionalmente filtrados por rango de fechas.
-   * - EMPLOYEE: solo egresos de la jornada comercial de hoy creados por empleados
-   *   (nunca egresos del administrador ni de días anteriores).
+   * - EMPLOYEE: egresos creados por ese empleado en el turno activo (desde openedAt de la sesión OPEN).
+   *   Si no hay sesión abierta, retorna array vacío.
    */
   async findAll(options: FindAllOptions): Promise<Expense[]> {
     const qb = this.expenseRepo
@@ -106,9 +106,14 @@ export class ExpensesService {
         qb.andWhere('expense.date <= :to', { to: options.to });
       }
     } else {
-      const today = businessDateToday();
-      qb.andWhere('expense.date = :today', { today }).andWhere('creator.role = :role', {
-        role: UserRole.EMPLOYEE,
+      const sessionData = await this.cashRegisterService.getCurrentSession();
+      if (!sessionData.session || !sessionData.isOpen) {
+        return [];
+      }
+      qb.andWhere('expense.createdAt >= :openedAt', {
+        openedAt: sessionData.session.openedAt,
+      }).andWhere('expense.createdByUserId = :userId', {
+        userId: options.userId,
       });
     }
 

@@ -51,7 +51,7 @@ export class ExpensesController {
   @ApiQuery({ name: 'from', required: false, example: '2025-03-01' })
   @ApiQuery({ name: 'to', required: false, example: '2025-03-31' })
   findAll(@CurrentUser() user: User, @Query('from') from?: string, @Query('to') to?: string) {
-    return this.expensesService.findAll({ role: user.role, from, to });
+    return this.expensesService.findAll({ role: user.role, userId: user.id, from, to });
   }
 
   /** Retorna el detalle de un egreso por ID. */
