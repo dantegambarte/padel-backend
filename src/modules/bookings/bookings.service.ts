@@ -161,12 +161,13 @@ export class BookingsService {
       const newStartMin = newH * 60 + newM;
       const newEndMin = newStartMin + (dto.durationMinutes ?? 60);
 
+      const activeStatuses = [BookingStatus.BOOKED, BookingStatus.PLAYING, BookingStatus.COMPLETED];
       const overlappingBooking = await queryRunner.manager
         .createQueryBuilder(Booking, 'b')
         .setLock('pessimistic_write')
         .where('b.court_id = :courtId', { courtId: dto.courtId })
         .andWhere('b.date = :date', { date: dto.date })
-        .andWhere('b.status != :cancelled', { cancelled: BookingStatus.CANCELLED })
+        .andWhere('b.status IN (:...activeStatuses)', { activeStatuses })
         .andWhere(
           `(CAST(SPLIT_PART(b.hour, ':', 1) AS INTEGER) * 60
             + CAST(SPLIT_PART(b.hour, ':', 2) AS INTEGER)) < :newEnd`,
@@ -186,6 +187,16 @@ export class BookingsService {
             `${overlappingBooking.durationMinutes} min).`,
         );
       }
+
+      await queryRunner.manager
+        .createQueryBuilder()
+        .delete()
+        .from(Booking)
+        .where('court_id = :courtId', { courtId: dto.courtId })
+        .andWhere('date = :date', { date: dto.date })
+        .andWhere('hour = :hour', { hour: dto.hour })
+        .andWhere('status = :cancelled', { cancelled: BookingStatus.CANCELLED })
+        .execute();
 
       const priceType = dto.priceType ?? PriceType.STANDARD;
       const duration = dto.durationMinutes ?? 60;

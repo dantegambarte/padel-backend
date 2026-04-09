@@ -185,9 +185,9 @@ export class FixedBookingsService {
             const existing = await queryRunner.manager.findOne(Booking, {
               where: { courtId: saved.courtId, date, hour: saved.hour },
             });
-            if (existing) {
+            if (existing && existing.status !== BookingStatus.CANCELLED) {
               this.logger.warn(
-                `Cascada: slot ocupado ${saved.courtId} ${date} ${saved.hour} — omitido.`,
+                `Cascada: slot ocupado ${saved.courtId} ${date} ${saved.hour} (status=${existing.status}) — omitido.`,
               );
               continue;
             }
@@ -373,10 +373,11 @@ export class FixedBookingsService {
     for (const date of dates) {
       const existing = await this.bookingRepo.findOne({
         where: { courtId: fixed.courtId, date, hour: fixed.hour },
+        withDeleted: false,
       });
-      if (existing) {
+      if (existing && existing.status !== BookingStatus.CANCELLED) {
         this.logger.warn(
-          `Slot ocupado: cancha=${fixed.courtId} fecha=${date} hora=${fixed.hour} — omitido.`,
+          `Slot ocupado: cancha=${fixed.courtId} fecha=${date} hora=${fixed.hour} (status=${existing.status}) — omitido.`,
         );
         continue;
       }
