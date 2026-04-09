@@ -85,6 +85,40 @@ export class BookingsController {
   }
 
   /**
+   * GET /api/v1/bookings/pending-expected-deposits
+   *
+   * Retorna los bookings con seña recurrente pendiente de confirmación
+   * (expectedDepositAmount > 0, no cancelados/completados, fecha >= hoy,
+   * y pago por transferencia aún no registrado o insuficiente).
+   *
+   * IMPORTANTE: este endpoint debe estar declarado ANTES de GET :id
+   * para que NestJS no intente parsear "pending-expected-deposits" como UUID.
+   *
+   * Acceso: Solo Admin.
+   */
+  @Get('pending-expected-deposits')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Señas recurrentes pendientes de confirmación',
+    description:
+      'Por defecto devuelve solo los turnos de HOY con seña esperada no confirmada. ' +
+      'Con ?daysAhead=N amplía la ventana a los próximos N días (ej. ?daysAhead=3 = hoy + 3 días).',
+  })
+  @ApiQuery({
+    name: 'daysAhead',
+    required: false,
+    type: Number,
+    example: 0,
+    description: '0 = solo hoy (default). N = hoy + N días.',
+  })
+  @ApiResponse({ status: 200, description: 'Lista de bookings con seña pendiente.' })
+  findPendingExpectedDeposits(@Query('daysAhead') daysAhead?: string) {
+    const days = daysAhead !== undefined ? Math.max(0, parseInt(daysAhead, 10) || 0) : 0;
+    return this.bookingsService.findPendingExpectedDeposits(days);
+  }
+
+  /**
    * GET /api/v1/bookings/:id
    * Detalle de un turno específico (para el modal de edición).
    */
@@ -163,6 +197,37 @@ export class BookingsController {
     @CurrentUser() user: User,
   ) {
     return this.bookingsService.update(id, updateBookingDto, user);
+  }
+
+  /**
+   * POST /api/v1/bookings/:id/confirm-expected-deposit
+   *
+   * Confirma con un clic la seña recurrente esperada de un turno fijo.
+   * Registra `expectedDepositAmount` como pago por transferencia sin
+   * requerir sesión de caja abierta.
+   * Idempotente: falla si la transferencia ya fue registrada.
+   *
+   * Acceso: Solo Admin.
+   */
+  @Post(':id/confirm-expected-deposit')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Confirmar seña recurrente esperada (1 clic)',
+    description:
+      'Registra el monto de seña habitual como transferencia sin abrir caja. ' +
+      'Solo aplica si expectedDepositAmount > 0 y aún no fue confirmada.',
+  })
+  @ApiParam({ name: 'id', type: 'string', format: 'uuid' })
+  @ApiResponse({ status: 200, description: 'Seña confirmada. Retorna el turno actualizado.' })
+  @ApiResponse({ status: 400, description: 'Sin seña esperada o ya confirmada.' })
+  @ApiResponse({ status: 404, description: 'Turno no encontrado.' })
+  confirmExpectedDeposit(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: User,
+  ) {
+    return this.bookingsService.confirmExpectedDeposit(id, user);
   }
 
   /**
