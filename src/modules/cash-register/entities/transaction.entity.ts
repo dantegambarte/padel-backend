@@ -31,14 +31,14 @@ export class Transaction {
   id: string;
 
   @ManyToOne(() => CashSession, (session) => session.transactions, {
-    nullable: false,
+    nullable: true,
     onDelete: 'RESTRICT',
   })
   @JoinColumn({ name: 'cash_session_id' })
   cashSession: CashSession;
 
-  @Column({ name: 'cash_session_id', type: 'uuid' })
-  cashSessionId: string;
+  @Column({ name: 'cash_session_id', type: 'uuid', nullable: true })
+  cashSessionId: string | null;
 
   @Column({ type: 'enum', enum: TransactionType })
   type: TransactionType;

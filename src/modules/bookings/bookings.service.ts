@@ -20,6 +20,7 @@ import { PricingShift } from '../pricing-shifts/entities/pricing-shift.entity';
 import { User, UserRole } from '../users/entities/user.entity';
 import { CashRegisterService } from '../cash-register/cash-register.service';
 import { TransactionType } from '../cash-register/entities/transaction.entity';
+import { CashSession, CashSessionStatus } from '../cash-register/entities/cash-session.entity';
 
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { UpdateBookingDto } from './dto/update-booking.dto';
@@ -566,6 +567,23 @@ export class BookingsService {
       }
 
       await queryRunner.manager.update(Booking, { id }, { expectedDepositAmount: null });
+
+      const activeSession = await queryRunner.manager.findOne(CashSession, {
+        where: { status: CashSessionStatus.OPEN },
+        order: { openedAt: 'DESC' } as any,
+      });
+      const court = await queryRunner.manager.findOne(Court, {
+        where: { id: booking.courtId },
+      });
+      await this.cashRegisterService.registerTransaction(queryRunner, {
+        cashSessionId: activeSession?.id ?? null,
+        type: TransactionType.BOOKING,
+        referenceId: booking.id,
+        concept: `Seña confirmada ${court?.name ?? ''} - ${booking.hour}hs (${booking.clientName})`,
+        amountCash: 0,
+        amountTransfer: expected,
+        createdByUserId: user.id,
+      });
 
       await queryRunner.commitTransaction();
 

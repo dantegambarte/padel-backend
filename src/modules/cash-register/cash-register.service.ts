@@ -17,7 +17,7 @@ import { CloseSessionDto } from './dto/close-session.dto';
 import { OpenSessionDto } from './dto/open-session.dto';
 
 export interface RegisterTransactionInput {
-  cashSessionId: string;
+  cashSessionId: string | null;
   type: TransactionType;
   referenceId: string;
   concept: string;
@@ -117,6 +117,21 @@ export class CashRegisterService {
       });
 
       const saved = await qr.manager.save(CashSession, session);
+
+      // Sweep: asignar transacciones huérfanas (confirmaciones de seña sin caja abierta)
+      const sweepResult = await qr.query(
+        `UPDATE transactions
+         SET cash_session_id = $1
+         WHERE cash_session_id IS NULL`,
+        [saved.id],
+      );
+      const sweptCount = sweepResult[1] ?? sweepResult?.rowCount ?? 0;
+      if (sweptCount > 0) {
+        this.logger.log(
+          `Sweep al abrir caja: ${sweptCount} transacción(es) huérfana(s) asignada(s) a sesión ${saved.id}`,
+        );
+      }
+
       await qr.commitTransaction();
 
       this.logger.log(
@@ -476,7 +491,7 @@ export class CashRegisterService {
     const cashExpenseTotal = parseFloat(totals[0]?.cash_expense_total ?? '0');
     const transferTotal = parseFloat(totals[0]?.transfer_total ?? '0');
     const initialBalance = Number(session.initialBalance) || 0;
-    const cashExpected = Math.max(0, initialBalance + cashIncome - cashExpenseTotal);
+    const cashExpected = Math.max(0, cashIncome - cashExpenseTotal);
     const difference = dto.cashCounted - cashExpected;
 
     session.status = CashSessionStatus.CLOSED;
@@ -674,7 +689,7 @@ export class CashRegisterService {
       const ib = Number(row.initial_balance) || 0;
       const cashIncome = parseFloat(row.cash_income);
       const cashExpenses = parseFloat(row.cash_expense_total);
-      const cashExpected = Math.max(0, ib + cashIncome - cashExpenses);
+      const cashExpected = Math.max(0, cashIncome - cashExpenses);
       const transferTotal = parseFloat(row.transfer_total);
       return {
         sessionId: row.id,
@@ -956,7 +971,7 @@ export class CashRegisterService {
       const ib = Number(row.initial_balance) || 0;
       const cashIncome = parseFloat(row.cash_income ?? '0');
       const cashExpenses = parseFloat(row.cash_expense_total ?? '0');
-      const cashExpected = Math.max(0, ib + cashIncome - cashExpenses);
+      const cashExpected = Math.max(0, cashIncome - cashExpenses);
       const transferTotal = parseFloat(row.transfer_total ?? '0');
       const cashCounted = row.cash_counted != null ? parseFloat(row.cash_counted) : null;
       const difference = cashCounted !== null ? cashCounted - cashExpected : null;
