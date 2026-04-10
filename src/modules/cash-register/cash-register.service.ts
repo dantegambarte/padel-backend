@@ -1421,7 +1421,7 @@ export class CashRegisterService {
       const ib = parseFloat(r.initial_balance ?? '0');
       const ci = parseFloat(r.cash_income);
       const ce = parseFloat(r.cash_expense_total);
-      const ef = Math.max(0, ib + ci - ce);
+      const ef = Math.max(0, ci - ce);
       const tr = parseFloat(r.transfer_total);
       wsR.addRow([]);
       const shiftTitle = wsR.addRow([`Turno ${i + 1} — ${r.opened_by_name}`]);
@@ -1495,7 +1495,7 @@ export class CashRegisterService {
       const ib = parseFloat(r.initial_balance ?? '0');
       const ci = parseFloat(r.cash_income);
       const ce = parseFloat(r.cash_expense_total);
-      const ef = Math.max(0, ib + ci - ce);
+      const ef = Math.max(0, ci - ce);
       const tr = parseFloat(r.transfer_total);
       const contado = r.cash_counted != null ? parseFloat(r.cash_counted) : null;
       const diff = r.difference != null ? parseFloat(r.difference) : null;
