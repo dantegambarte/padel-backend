@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, Logger } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 
@@ -67,6 +67,25 @@ export class FixedBookingsService {
     if (!court.isActive) {
       throw new BadRequestException('No se pueden asignar turnos a una cancha inactiva.');
     }
+
+    // ── Validación de solapamiento en la startDate ───────────────────────────
+    const conflict = await this.bookingRepo.findOne({
+      where: {
+        courtId: dto.courtId,
+        date: dto.startDate,
+        hour: dto.hour,
+      },
+    });
+    if (conflict && conflict.status !== BookingStatus.CANCELLED) {
+      const next = new Date(dto.startDate + 'T00:00:00');
+      next.setDate(next.getDate() + 7);
+      const nextAvailableDate = next.toISOString().slice(0, 10);
+      throw new ConflictException({
+        message: 'CONFLICT_START_DATE',
+        nextAvailableDate,
+      });
+    }
+    // ────────────────────────────────────────────────────────────────────────
 
     const fixed = this.fixedRepo.create({
       clientName: dto.clientName,

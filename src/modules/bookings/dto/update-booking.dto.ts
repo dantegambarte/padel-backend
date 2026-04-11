@@ -87,4 +87,13 @@ export class UpdateBookingDto {
   @IsOptional()
   @IsBoolean()
   isConfirmed?: boolean;
+
+  @ApiPropertyOptional({
+    example: 4,
+    description: 'Cantidad de jugadores en cancha (para dividir el cobro)',
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  playerCount?: number;
 }

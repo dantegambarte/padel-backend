@@ -249,10 +249,20 @@ export class BookingsService {
       await queryRunner.manager.save(BookingPayment, payment);
 
       if (amountCash > 0 || amountTransfer > 0) {
-        const session = await this.cashRegisterService.getActiveSessionOrFail(queryRunner, user.id);
+        // Efectivo requiere caja abierta (billetes físicos). Transferencia puede
+        // registrarse sin sesión activa: la transacción nace huérfana y es
+        // adoptada por la próxima caja al hacer sweep en openSession().
+        let cashSessionId: string | null = null;
+        if (amountCash > 0) {
+          const session = await this.cashRegisterService.getActiveSessionOrFail(queryRunner, user.id);
+          cashSessionId = session.id;
+        } else {
+          const session = await this.cashRegisterService.getActiveSession(queryRunner);
+          cashSessionId = session?.id ?? null;
+        }
 
         await this.cashRegisterService.registerTransaction(queryRunner, {
-          cashSessionId: session.id,
+          cashSessionId,
           type: TransactionType.BOOKING,
           referenceId: savedBooking.id,
           concept: `Turno ${court.name} - ${dto.hour}hs (${dto.clientName})`,
@@ -385,20 +395,49 @@ export class BookingsService {
       if (dto.items !== undefined) {
         const existingItems = bookingWithRelations?.items ?? [];
 
-        if (existingItems.length > 0) {
-          const ids = existingItems.map((i) => i.id);
+        // Separar items pagados (no tocar) de los impagos (reemplazar)
+        const paidItems = existingItems.filter((i) => i.isPaid);
+        const unpaidItems = existingItems.filter((i) => !i.isPaid);
+
+        // Eliminar solo los items impagos anteriores
+        if (unpaidItems.length > 0) {
+          const ids = unpaidItems.map((i) => i.id);
           const placeholders = ids.map((_, idx) => `$${idx + 1}`).join(', ');
           await queryRunner.query(`DELETE FROM booking_items WHERE id IN (${placeholders})`, ids);
         }
 
-        const newItems = await this.processItems(dto.items, queryRunner, existingItems);
-        itemsTotal = newItems.reduce((sum, i) => sum + Number(i.unitPrice) * i.quantity, 0);
+        // Separar el DTO: items marcados como pagados vs impagos
+        const paidDtoItems = dto.items.filter((i) => i.isPaid);
+        const unpaidDtoItems = dto.items.filter((i) => !i.isPaid);
 
-        for (const item of newItems) {
+        // Procesar solo los items impagos (con stock disponible considerando los pagados existentes)
+        const allExistingForStock = [...paidItems, ...unpaidItems];
+        const newUnpaidItems = await this.processItems(unpaidDtoItems, queryRunner, allExistingForStock);
+
+        // Items pagados del DTO que no corresponden a un item pagado existente (nuevos pagados)
+        const existingPaidProductIds = new Set(paidItems.map((i) => i.productId));
+        const newPaidDtoItems = paidDtoItems.filter((i) => !existingPaidProductIds.has(i.productId));
+        const newPaidItems = newPaidDtoItems.length > 0
+          ? await this.processItems(newPaidDtoItems, queryRunner, allExistingForStock)
+          : [];
+
+        const paidTotal = paidItems.reduce((sum, i) => sum + Number(i.unitPrice) * i.quantity, 0);
+        const newUnpaidTotal = newUnpaidItems.reduce((sum, i) => sum + Number(i.unitPrice) * i.quantity, 0);
+        const newPaidTotal = newPaidItems.reduce((sum, i) => sum + Number(i.unitPrice) * i.quantity, 0);
+        itemsTotal = paidTotal + newUnpaidTotal + newPaidTotal;
+
+        for (const item of newUnpaidItems) {
           await queryRunner.query(
-            `INSERT INTO booking_items (booking_id, product_id, quantity, unit_price)
-             VALUES ($1, $2, $3, $4)`,
-            [booking.id, item.productId, item.quantity, item.unitPrice],
+            `INSERT INTO booking_items (booking_id, product_id, quantity, unit_price, is_paid)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [booking.id, item.productId, item.quantity, item.unitPrice, false],
+          );
+        }
+        for (const item of newPaidItems) {
+          await queryRunner.query(
+            `INSERT INTO booking_items (booking_id, product_id, quantity, unit_price, is_paid)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [booking.id, item.productId, item.quantity, item.unitPrice, true],
           );
         }
       } else {
@@ -463,12 +502,23 @@ export class BookingsService {
           const court = await queryRunner.manager.findOne(Court, {
             where: { id: booking.courtId },
           });
-          const session = await this.cashRegisterService.getActiveSessionOrFail(
-            queryRunner,
-            user.id,
-          );
+
+          // Misma lógica que en create: efectivo exige caja abierta,
+          // transferencia pura puede quedar huérfana para el próximo turno.
+          let cashSessionId: string | null = null;
+          if (deltaCash > 0) {
+            const session = await this.cashRegisterService.getActiveSessionOrFail(
+              queryRunner,
+              user.id,
+            );
+            cashSessionId = session.id;
+          } else {
+            const session = await this.cashRegisterService.getActiveSession(queryRunner);
+            cashSessionId = session?.id ?? null;
+          }
+
           await this.cashRegisterService.registerTransaction(queryRunner, {
-            cashSessionId: session.id,
+            cashSessionId,
             type: TransactionType.BOOKING,
             referenceId: booking.id,
             concept: `Pago turno ${court?.name ?? ''} - ${booking.hour}hs (${booking.clientName})`,
@@ -483,6 +533,7 @@ export class BookingsService {
       if (dto.clientName) bookingFields.clientName = dto.clientName;
       if (dto.status) bookingFields.status = dto.status;
       if (dto.isConfirmed !== undefined) bookingFields.isConfirmed = dto.isConfirmed;
+      if (dto.playerCount !== undefined) bookingFields.playerCount = dto.playerCount;
       if (rescheduleFields) Object.assign(bookingFields, rescheduleFields);
 
       if (Object.keys(bookingFields).length > 0) {

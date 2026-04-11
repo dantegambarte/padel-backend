@@ -152,6 +152,21 @@ export class CashRegisterService {
   }
 
   /**
+   * Obtiene la sesión de caja ABIERTA actualmente, o null si no hay ninguna.
+   * Usar cuando el cobro es solo por transferencia: no requiere caja abierta
+   * (la transacción nacerá huérfana y será adoptada al abrir la próxima caja).
+   *
+   * Debe llamarse dentro de un QueryRunner activo.
+   */
+  async getActiveSession(queryRunner: QueryRunner): Promise<CashSession | null> {
+    const openSession = await queryRunner.manager.findOne(CashSession, {
+      where: { status: CashSessionStatus.OPEN },
+      order: { openedAt: 'DESC' } as any,
+    });
+    return openSession ?? null;
+  }
+
+  /**
    * Obtiene la sesión de caja ABIERTA actualmente.
    * Si no existe ninguna sesión abierta lanza un error —
    * el empleado debe abrir la caja antes de registrar cualquier cobro.
@@ -598,13 +613,7 @@ export class CashRegisterService {
       difference: number | null;
     }[];
   }> {
-    const { pendingBookings } = await this.checkPendings();
-    if (pendingBookings > 0) {
-      throw new ConflictException(
-        'No se puede cerrar la caja. Hay turnos en curso o sin finalizar.',
-      );
-    }
-
+    // Un turno de caja abierto sí impide el cierre (no hay totales definitivos).
     const openSession = await this.sessionRepo.findOne({
       where: { status: CashSessionStatus.OPEN },
     });
@@ -674,6 +683,35 @@ export class CashRegisterService {
     // Procesar solo la fecha contable más antigua pendiente.
     const commercialDateStr = uniqueDates[0];
     const rows = allOrphanedRows.filter((r) => r.date === commercialDateStr);
+
+    // Auto-completar reservas huérfanas de la fecha a cerrar.
+    // Si un empleado olvidó finalizar un turno ('playing') o un turno pasado quedó
+    // en 'booked' sin cobrarse, se fuerza su cierre para no bloquear la contabilidad.
+    // Solo aplica a fechas anteriores a la fecha comercial actual (nunca al día en curso).
+    const todayBusinessDate = this.getBusinessDate();
+    if (commercialDateStr < todayBusinessDate) {
+      const orphanedBookings = await this.dataSource.query<{ id: string; status: string }[]>(
+        `SELECT id, status FROM bookings
+         WHERE date = $1
+           AND status IN ('playing', 'booked')
+           AND (date || ' ' || hour || ':00')::timestamp
+               < NOW() AT TIME ZONE 'America/Argentina/Buenos_Aires'`,
+        [commercialDateStr],
+      );
+
+      if (orphanedBookings.length > 0) {
+        const ids = orphanedBookings.map((b) => b.id);
+        await this.dataSource.query(
+          `UPDATE bookings SET status = 'completed', updated_at = NOW()
+           WHERE id = ANY($1::uuid[])`,
+          [ids],
+        );
+        this.logger.warn(
+          `closeDay [${commercialDateStr}]: auto-completadas ${orphanedBookings.length} reserva(s) huérfana(s) ` +
+            `(IDs: ${ids.join(', ')}).`,
+        );
+      }
+    }
 
     // Guardia contra race condition / doble clic.
     const existingClosure = await this.dailyClosureRepo.findOne({

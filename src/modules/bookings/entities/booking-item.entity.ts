@@ -55,6 +55,13 @@ export class BookingItem {
   })
   unitPrice: number;
 
+  /**
+   * Indica si este item ya fue cobrado (pago parcial por item).
+   * Un item pagado nunca debe fusionarse con uno nuevo del mismo producto.
+   */
+  @Column({ name: 'is_paid', type: 'boolean', default: false })
+  isPaid: boolean;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 }

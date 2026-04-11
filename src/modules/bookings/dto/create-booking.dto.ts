@@ -9,6 +9,7 @@ import {
   IsNumber,
   IsInt,
   IsIn,
+  IsBoolean,
   Min,
   ValidateNested,
   ValidateIf,
@@ -27,6 +28,11 @@ export class BookingItemInputDto {
   @IsNumber({}, { message: 'La cantidad debe ser un número.' })
   @Min(1, { message: 'La cantidad mínima es 1.' })
   quantity: number;
+
+  @ApiPropertyOptional({ example: false, description: 'Si el item ya fue cobrado (pago parcial).' })
+  @IsOptional()
+  @IsBoolean()
+  isPaid?: boolean;
 }
 
 export class CreateBookingDto {

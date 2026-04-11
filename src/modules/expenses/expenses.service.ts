@@ -112,8 +112,8 @@ export class ExpensesService {
       }
       qb.andWhere('expense.createdAt >= :openedAt', {
         openedAt: sessionData.session.openedAt,
-      }).andWhere('expense.createdByUserId = :userId', {
-        userId: options.userId,
+      }).andWhere('creator.role != :adminRole', {
+        adminRole: UserRole.ADMIN,
       });
     }
 

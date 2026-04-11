@@ -187,4 +187,11 @@ export class Booking {
   @ManyToOne(() => Teacher, { nullable: true, onDelete: 'SET NULL', eager: false })
   @JoinColumn({ name: 'teacher_id' })
   teacher: Teacher | null;
+
+  /**
+   * Cantidad de jugadores en cancha, persistida desde el modal de cobro.
+   * null = no configurado (el frontend usa default 4).
+   */
+  @Column({ name: 'player_count', type: 'int', nullable: true, default: null })
+  playerCount: number | null;
 }
