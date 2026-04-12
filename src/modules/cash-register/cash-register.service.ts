@@ -72,14 +72,14 @@ export class CashRegisterService {
       let commercialDate = this.getBusinessDate();
 
       const orphanedDays: { date: string }[] = await qr.query(
-        `SELECT DISTINCT cs.date
+        `SELECT DISTINCT TO_CHAR(cs.date, 'YYYY-MM-DD') AS date
          FROM cash_sessions cs
          WHERE cs.status = 'closed'
-           AND cs.date < $1
+           AND cs.date < $1::date
            AND NOT EXISTS (
              SELECT 1 FROM daily_closures dc WHERE dc.date = cs.date
            )
-         ORDER BY cs.date ASC
+         ORDER BY 1 ASC
          LIMIT 1`,
         [commercialDate],
       );
@@ -642,7 +642,7 @@ export class CashRegisterService {
     >(
       `SELECT
          cs.id,
-         cs.date,
+         TO_CHAR(cs.date, 'YYYY-MM-DD')                                      AS date,
          cs.opened_at,
          cs.closed_at,
          cs.status,

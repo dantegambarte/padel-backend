@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -11,6 +12,8 @@ import { CreateCourtDto, UpdateCourtDto } from './dto/create-court.dto';
 
 @Injectable()
 export class CourtsService {
+  private readonly logger = new Logger(CourtsService.name);
+
   constructor(
     @InjectRepository(Court)
     private readonly courtRepo: Repository<Court>,
@@ -40,14 +43,18 @@ export class CourtsService {
       throw new ConflictException(`Ya existe una cancha con el nombre "${dto.name}".`);
     }
     const court = this.courtRepo.create(dto);
-    return this.courtRepo.save(court);
+    const saved = await this.courtRepo.save(court);
+    this.logger.log(`Cancha creada: "${saved.name}" (id=${saved.id})`);
+    return saved;
   }
 
   /** Actualiza parcialmente una cancha. */
   async update(id: string, dto: UpdateCourtDto): Promise<Court> {
     const court = await this.findOne(id);
     Object.assign(court, dto);
-    return this.courtRepo.save(court);
+    const saved = await this.courtRepo.save(court);
+    this.logger.log(`Cancha actualizada: "${saved.name}" (id=${id})`);
+    return saved;
   }
 
   /** Elimina una cancha si no tiene turnos asociados. */
@@ -59,11 +66,13 @@ export class CourtsService {
       .where('court.id = :id', { id })
       .getCount();
     if (bookingCount > 0) {
+      this.logger.warn(`Intento de eliminar cancha "${court.name}" (id=${id}) con ${bookingCount} turno(s) asociado(s)`);
       throw new BadRequestException(
         'No se puede eliminar la cancha porque tiene turnos asociados. Te recomendamos inactivarla.',
       );
     }
     await this.courtRepo.remove(court);
+    this.logger.log(`Cancha eliminada: "${court.name}" (id=${id})`);
     return { deleted: true };
   }
 }

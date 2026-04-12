@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -10,6 +10,8 @@ import { UpdateTeacherDto } from './dto/update-teacher.dto';
 
 @Injectable()
 export class TeachersService {
+  private readonly logger = new Logger(TeachersService.name);
+
   constructor(
     @InjectRepository(Teacher)
     private readonly teacherRepo: Repository<Teacher>,
@@ -43,12 +45,14 @@ export class TeachersService {
   }
 
   /** Crea un nuevo profesor. */
-  create(dto: CreateTeacherDto): Promise<Teacher> {
+  async create(dto: CreateTeacherDto): Promise<Teacher> {
     const teacher = this.teacherRepo.create({
       fullName: dto.fullName,
       phoneNumber: dto.phoneNumber ?? null,
     });
-    return this.teacherRepo.save(teacher);
+    const saved = await this.teacherRepo.save(teacher);
+    this.logger.log(`Profesor creado: "${saved.fullName}" (id=${saved.id})`);
+    return saved;
   }
 
   /** Actualiza parcialmente un profesor. */
@@ -59,7 +63,9 @@ export class TeachersService {
     if (dto.phoneNumber !== undefined) teacher.phoneNumber = dto.phoneNumber ?? null;
     if (dto.isActive !== undefined) teacher.isActive = dto.isActive;
 
-    return this.teacherRepo.save(teacher);
+    const saved = await this.teacherRepo.save(teacher);
+    this.logger.log(`Profesor actualizado: "${saved.fullName}" (id=${id})`);
+    return saved;
   }
 
   /** Soft-delete: marca isActive = false. */
@@ -67,6 +73,7 @@ export class TeachersService {
     const teacher = await this.findOne(id);
     teacher.isActive = false;
     await this.teacherRepo.save(teacher);
+    this.logger.log(`Profesor desactivado: "${teacher.fullName}" (id=${id})`);
   }
 
   /**

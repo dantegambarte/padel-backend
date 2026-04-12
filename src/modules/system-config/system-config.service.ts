@@ -1,10 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SystemConfig } from './entities/system-config.entity';
 
 @Injectable()
 export class SystemConfigService {
+  private readonly logger = new Logger(SystemConfigService.name);
+
   constructor(
     @InjectRepository(SystemConfig)
     private readonly configRepo: Repository<SystemConfig>,
@@ -44,7 +46,9 @@ export class SystemConfigService {
       throw new NotFoundException(`Configuración "${key}" no encontrada.`);
     }
     config.value = value;
-    return this.configRepo.save(config);
+    const saved = await this.configRepo.save(config);
+    this.logger.log(`Config actualizada: ${key} = "${value}"`);
+    return saved;
   }
 
   /** Actualiza múltiples claves en una sola operación (crea la clave si no existe). */
@@ -64,6 +68,7 @@ export class SystemConfigService {
         }
       }),
     );
+    this.logger.log(`Config bulk-update: ${entries.map(([k, v]) => `${k}="${v}"`).join(', ')}`);
     return this.findAll();
   }
 

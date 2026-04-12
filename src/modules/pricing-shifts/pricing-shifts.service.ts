@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -8,6 +8,8 @@ import { UpdatePricingShiftDto } from './dto/update-pricing-shift.dto';
 
 @Injectable()
 export class PricingShiftsService {
+  private readonly logger = new Logger(PricingShiftsService.name);
+
   constructor(
     @InjectRepository(PricingShift)
     private readonly repo: Repository<PricingShift>,
@@ -36,7 +38,7 @@ export class PricingShiftsService {
   }
 
   /** Crea una nueva franja horaria de precios. */
-  create(dto: CreatePricingShiftDto): Promise<PricingShift> {
+  async create(dto: CreatePricingShiftDto): Promise<PricingShift> {
     const shift = this.repo.create({
       name: dto.name,
       startTime: dto.startTime,
@@ -49,19 +51,24 @@ export class PricingShiftsService {
       teacherPricePerHour: dto.teacherPricePerHour ?? 0,
       isActive: dto.isActive ?? true,
     });
-    return this.repo.save(shift);
+    const saved = await this.repo.save(shift);
+    this.logger.log(`Franja horaria creada: "${saved.name}" (id=${saved.id}) ${saved.startTime}-${saved.endTime}`);
+    return saved;
   }
 
   /** Actualiza parcialmente una franja horaria. */
   async update(id: string, dto: UpdatePricingShiftDto): Promise<PricingShift> {
     const shift = await this.findOne(id);
     Object.assign(shift, dto);
-    return this.repo.save(shift);
+    const saved = await this.repo.save(shift);
+    this.logger.log(`Franja horaria actualizada: "${saved.name}" (id=${id})`);
+    return saved;
   }
 
   /** Elimina una franja horaria de precios. */
   async remove(id: string): Promise<void> {
     const shift = await this.findOne(id);
+    this.logger.log(`Franja horaria eliminada: "${shift.name}" (id=${id})`);
     await this.repo.remove(shift);
   }
 }

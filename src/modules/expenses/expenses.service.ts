@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -36,6 +37,8 @@ export interface FindAllOptions {
 
 @Injectable()
 export class ExpensesService {
+  private readonly logger = new Logger(ExpensesService.name);
+
   constructor(
     @InjectRepository(Expense)
     private readonly expenseRepo: Repository<Expense>,
@@ -53,6 +56,9 @@ export class ExpensesService {
     userRole: UserRole,
   ): Promise<Expense> {
     if (userRole !== UserRole.ADMIN && ADMIN_ONLY_CATEGORIES.has(dto.category as ExpenseCategory)) {
+      this.logger.warn(
+        `Usuario ${createdByUserId} (${userRole}) intentó registrar egreso en categoría restringida: ${dto.category}`,
+      );
       throw new ForbiddenException(
         'No tienes permisos suficientes para registrar gastos en esta categoría administrativa.',
       );
@@ -82,7 +88,11 @@ export class ExpensesService {
       expense.cashSessionId = sessionData.session.id;
     }
 
-    return this.expenseRepo.save(expense);
+    const saved = await this.expenseRepo.save(expense);
+    this.logger.log(
+      `Egreso creado: id=${saved.id} categoría=${saved.category} monto=${saved.amount} método=${saved.paymentMethod} por userId=${createdByUserId}`,
+    );
+    return saved;
   }
 
   /**
@@ -152,12 +162,15 @@ export class ExpensesService {
       expense.cashSessionId = null;
     }
 
-    return this.expenseRepo.save(expense);
+    const saved = await this.expenseRepo.save(expense);
+    this.logger.log(`Egreso actualizado: id=${id} categoría=${saved.category} monto=${saved.amount}`);
+    return saved;
   }
 
   /** Soft delete. */
   async remove(id: string): Promise<void> {
     const expense = await this.findOne(id);
     await this.expenseRepo.softRemove(expense);
+    this.logger.log(`Egreso eliminado (soft): id=${id}`);
   }
 }

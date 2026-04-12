@@ -55,6 +55,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
         `[${request.method}] ${request.url} → ${status}`,
         exception instanceof Error ? exception.stack : String(exception),
       );
+    } else if (status >= 400 && status !== HttpStatus.UNAUTHORIZED) {
+      this.logger.warn(
+        `[${request.method}] ${request.url} → ${status} | ${JSON.stringify(message)}`,
+      );
     }
 
     const body: Record<string, unknown> = {
