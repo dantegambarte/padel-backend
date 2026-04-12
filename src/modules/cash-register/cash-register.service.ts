@@ -262,6 +262,11 @@ export class CashRegisterService {
      * Se persiste en la tabla daily_closures para ser la fuente de verdad del backend.
      */
     isBusinessDayClosed: boolean;
+    /**
+     * true cuando existen turnos cerrados sin Cierre de Jornada formal (sesiones huérfanas).
+     * Distinto de !isBusinessDayClosed: en un día nuevo sin ninguna sesión este campo es false.
+     */
+    hasPendingClosures: boolean;
   }> {
     let session: CashSession | null;
 
@@ -315,6 +320,13 @@ export class CashRegisterService {
       const noSessClosureRecord = await this.dailyClosureRepo.findOne({
         where: { date: noSessCommercialDate },
       });
+      const orphanedCount = await this.dataSource.query<{ count: string }[]>(
+        `SELECT COUNT(*) AS count FROM cash_sessions cs
+         WHERE cs.status = 'closed'
+           AND NOT EXISTS (SELECT 1 FROM daily_closures dc WHERE dc.date = cs.date)`,
+        [],
+      );
+      const hasPendingClosures = parseInt(orphanedCount[0]?.count ?? '0', 10) > 0;
       return {
         session: null,
         cashIncome: 0,
@@ -327,6 +339,7 @@ export class CashRegisterService {
         isOpen: false,
         staleSession: false,
         isBusinessDayClosed: !!noSessClosureRecord,
+        hasPendingClosures,
       };
     }
 
@@ -456,6 +469,7 @@ export class CashRegisterService {
       isOpen: session.status === CashSessionStatus.OPEN,
       staleSession,
       isBusinessDayClosed: !!closureRecord,
+      hasPendingClosures: !closureRecord && session.status === CashSessionStatus.CLOSED,
     };
   }
 
