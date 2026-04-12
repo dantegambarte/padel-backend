@@ -667,6 +667,20 @@ export class CashRegisterService {
     );
 
     if (!allOrphanedRows.length) {
+      // Diagnóstico: loguear qué hay en la DB para facilitar el debug en producción.
+      const allClosed = await this.dataSource.query<{ id: string; date: string }[]>(
+        `SELECT id, date FROM cash_sessions WHERE status = 'closed' ORDER BY date DESC LIMIT 5`,
+        [],
+      );
+      const allClosures = await this.dataSource.query<{ date: string }[]>(
+        `SELECT date FROM daily_closures ORDER BY date DESC LIMIT 5`,
+        [],
+      );
+      this.logger.warn(
+        `closeDay: sin sesiones huérfanas. ` +
+          `Últimas sesiones cerradas: [${allClosed.map((r) => `${r.id.substring(0, 8)}@${r.date}`).join(', ')}]. ` +
+          `Cierres existentes: [${allClosures.map((r) => r.date).join(', ')}].`,
+      );
       throw new NotFoundException(
         'No hay turnos cerrados pendientes de Cierre de Jornada. Cerrá al menos un turno antes de continuar.',
       );
