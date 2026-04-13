@@ -72,6 +72,12 @@ export class SystemConfigService {
     return this.findAll();
   }
 
+  /** Retorna el fondo de caja base configurado (default 0 si no existe la clave). */
+  async getDefaultCashFund(): Promise<number> {
+    const config = await this.configRepo.findOne({ where: { key: 'fondo_caja_base' } });
+    return config ? parseFloat(config.value) || 0 : 0;
+  }
+
   /** Retorna los precios estándar y profesor (usado internamente por BookingsService). */
   async getPrices(): Promise<{ standard: number; professor: number }> {
     const all = await this.findAllAsMap();

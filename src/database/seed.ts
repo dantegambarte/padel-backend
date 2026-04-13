@@ -285,6 +285,11 @@ async function seed() {
         value: '60',
         description: 'Duración de cada turno en minutos',
       },
+      {
+        key: 'fondo_caja_base',
+        value: '25000',
+        description: 'Fondo de caja base (cambio inicial por defecto al abrir turno)',
+      },
     ]);
     console.log('✅ Configuración del sistema creada');
   } else {

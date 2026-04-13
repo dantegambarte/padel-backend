@@ -15,6 +15,7 @@ import { DailyClosureRecord } from './entities/daily-closure.entity';
 import { User } from '../users/entities/user.entity';
 import { CloseSessionDto } from './dto/close-session.dto';
 import { OpenSessionDto } from './dto/open-session.dto';
+import { SystemConfigService } from '../system-config/system-config.service';
 
 export interface RegisterTransactionInput {
   cashSessionId: string | null;
@@ -42,12 +43,15 @@ export class CashRegisterService {
 
     @InjectRepository(DailyClosureRecord)
     private readonly dailyClosureRepo: Repository<DailyClosureRecord>,
+
+    private readonly systemConfigService: SystemConfigService,
   ) {}
 
   /**
    * Abre una nueva sesión de caja manualmente.
    * Requiere que no exista ninguna sesión OPEN en este momento.
-   * Registra el fondo de caja / cambio inicial declarado por el empleado.
+   * El fondo inicial siempre se toma de `fondo_caja_base` en system_config,
+   * ignorando el valor enviado por el cliente.
    */
   async openSession(dto: OpenSessionDto, user: User): Promise<CashSession> {
     const qr = this.dataSource.createQueryRunner();
@@ -108,11 +112,13 @@ export class CashRegisterService {
         );
       }
 
+      const fondoCajaBase = await this.systemConfigService.getDefaultCashFund();
+
       const session = qr.manager.create(CashSession, {
         date: commercialDate,
         status: CashSessionStatus.OPEN,
         openedByUserId: user.id,
-        initialBalance: dto.initialBalance,
+        initialBalance: fondoCajaBase,
         notes: dto.notes || undefined,
       });
 
@@ -483,6 +489,8 @@ export class CashRegisterService {
   ): Promise<{
     session: CashSession;
     cashExpected: number;
+    cashExpectedInDrawer: number;
+    initialBalance: number;
     transferTotal: number;
     dayTotal: number;
     difference: number;
@@ -521,7 +529,10 @@ export class CashRegisterService {
     const transferTotal = parseFloat(totals[0]?.transfer_total ?? '0');
     const initialBalance = Number(session.initialBalance) || 0;
     const cashExpected = Math.max(0, cashIncome - cashExpenseTotal);
-    const difference = dto.cashCounted - cashExpected;
+    // Total físico esperado en cajón = GREATEST(0, fondo_inicial + ingresos - egresos)
+    // Consistente con la migración RecalcSessionDifferences.
+    const cashExpectedInDrawer = Math.max(0, initialBalance + cashIncome - cashExpenseTotal);
+    const difference = dto.cashCounted - cashExpectedInDrawer;
 
     session.status = CashSessionStatus.CLOSED;
     session.closedByUserId = user.id;
@@ -544,6 +555,8 @@ export class CashRegisterService {
     return {
       session,
       cashExpected,
+      cashExpectedInDrawer,
+      initialBalance,
       transferTotal,
       dayTotal: cashExpected + transferTotal,
       difference,
