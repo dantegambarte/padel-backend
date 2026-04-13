@@ -230,18 +230,36 @@ export class ReportsService {
       }[]
     >(
       `SELECT
-         (t.created_at AT TIME ZONE $1)::date::text                     AS date,
+         cs.date::text                                                   AS date,
          TO_CHAR(t.created_at AT TIME ZONE $1, 'HH24:MI')               AS time,
-         t.type,
+         t.type::text                                                    AS type,
          t.concept,
          t.amount_cash                                                   AS cash,
          t.amount_transfer                                               AS transfer,
          (t.amount_cash + t.amount_transfer)                            AS total,
          u.full_name                                                     AS created_by
        FROM transactions t
+       JOIN cash_sessions cs ON cs.id = t.cash_session_id
        JOIN users u ON u.id = t.created_by_user_id
-       WHERE (t.created_at AT TIME ZONE $1)::date BETWEEN $2::date AND $3::date
-       ORDER BY t.created_at ASC`,
+       WHERE cs.date BETWEEN $2::date AND $3::date
+
+       UNION ALL
+
+       SELECT
+         cs.date::text                                                   AS date,
+         TO_CHAR(e.created_at AT TIME ZONE $1, 'HH24:MI')               AS time,
+         'expense'                                                       AS type,
+         e.description                                                   AS concept,
+         e.amount                                                        AS cash,
+         0                                                               AS transfer,
+         e.amount                                                        AS total,
+         NULL                                                            AS created_by
+       FROM expenses e
+       JOIN cash_sessions cs ON cs.id = e.cash_session_id
+       WHERE cs.date BETWEEN $2::date AND $3::date
+         AND e.deleted_at IS NULL
+
+       ORDER BY date ASC, time ASC`,
       [this.TZ, from, to],
     );
 
