@@ -65,11 +65,12 @@ export class ReportsService {
     >(
       `WITH income AS (
          SELECT
-           DATE_TRUNC($1, (created_at AT TIME ZONE $2))::date::text AS period,
-           COALESCE(SUM(CASE WHEN type = 'booking' THEN amount_cash + amount_transfer ELSE 0 END), 0) AS bookings,
-           COALESCE(SUM(CASE WHEN type = 'sale'    THEN amount_cash + amount_transfer ELSE 0 END), 0) AS sales
-         FROM transactions
-         WHERE (created_at AT TIME ZONE $2)::date BETWEEN $3::date AND $4::date
+           DATE_TRUNC($1, cs.date)::date::text AS period,
+           COALESCE(SUM(CASE WHEN t.type = 'booking' THEN t.amount_cash + t.amount_transfer ELSE 0 END), 0) AS bookings,
+           COALESCE(SUM(CASE WHEN t.type = 'sale'    THEN t.amount_cash + t.amount_transfer ELSE 0 END), 0) AS sales
+         FROM transactions t
+         JOIN cash_sessions cs ON cs.id = t.cash_session_id
+         WHERE cs.date BETWEEN $2::date AND $3::date
          GROUP BY 1
        ),
        exp AS (
@@ -77,7 +78,7 @@ export class ReportsService {
            DATE_TRUNC($1, date)::date::text AS period,
            COALESCE(SUM(amount), 0)         AS expenses
          FROM expenses
-         WHERE date BETWEEN $3::date AND $4::date
+         WHERE date BETWEEN $2::date AND $3::date
            AND deleted_at IS NULL
          GROUP BY 1
        )
@@ -89,7 +90,7 @@ export class ReportsService {
        FROM income i
        FULL OUTER JOIN exp e ON i.period = e.period
        ORDER BY 1`,
-      [trunc, this.TZ, from, to],
+      [trunc, from, to],
     );
 
     return rows.map((r) => ({
@@ -116,11 +117,12 @@ export class ReportsService {
       }[]
     >(
       `SELECT
-         COALESCE(SUM(amount_cash), 0)     AS cash_total,
-         COALESCE(SUM(amount_transfer), 0) AS transfer_total
-       FROM transactions
-       WHERE (created_at AT TIME ZONE $1)::date BETWEEN $2::date AND $3::date`,
-      [this.TZ, from, to],
+         COALESCE(SUM(t.amount_cash), 0)     AS cash_total,
+         COALESCE(SUM(t.amount_transfer), 0) AS transfer_total
+       FROM transactions t
+       JOIN cash_sessions cs ON cs.id = t.cash_session_id
+       WHERE cs.date BETWEEN $1::date AND $2::date`,
+      [from, to],
     );
 
     const cash = parseFloat(rows[0]?.cash_total ?? '0');
@@ -162,10 +164,11 @@ export class ReportsService {
            p.name AS product_name,
            si.quantity,
            si.unit_price * si.quantity AS line_total,
-           s.created_at
+           cs.date AS session_date
          FROM sale_items si
-         JOIN products p ON p.id = si.product_id
-         JOIN sales    s ON s.id = si.sale_id
+         JOIN products    p  ON p.id = si.product_id
+         JOIN sales       s  ON s.id = si.sale_id
+         JOIN cash_sessions cs ON cs.id = s.cash_session_id
 
          UNION ALL
 
@@ -174,10 +177,12 @@ export class ReportsService {
            p.name AS product_name,
            bi.quantity,
            bi.unit_price * bi.quantity AS line_total,
-           b.created_at
+           cs.date AS session_date
          FROM booking_items bi
-         JOIN products p  ON p.id = bi.product_id
-         JOIN bookings b  ON b.id = bi.booking_id
+         JOIN products    p  ON p.id = bi.product_id
+         JOIN bookings    b  ON b.id = bi.booking_id
+         JOIN transactions t  ON t.reference_id = b.id AND t.type = 'booking'
+         JOIN cash_sessions cs ON cs.id = t.cash_session_id
          WHERE b.status != 'cancelled'
        )
        SELECT
@@ -186,11 +191,11 @@ export class ReportsService {
          SUM(quantity)   AS qty,
          SUM(line_total) AS revenue
        FROM unified
-       WHERE (created_at AT TIME ZONE $1)::date BETWEEN $2::date AND $3::date
+       WHERE session_date BETWEEN $1::date AND $2::date
        GROUP BY product_id, product_name
        ORDER BY qty DESC
        LIMIT 20`,
-      [this.TZ, from, to],
+      [from, to],
     );
 
     return rows.map((r, i) => ({
@@ -230,18 +235,36 @@ export class ReportsService {
       }[]
     >(
       `SELECT
-         (t.created_at AT TIME ZONE $1)::date::text                     AS date,
+         cs.date::text                                                   AS date,
          TO_CHAR(t.created_at AT TIME ZONE $1, 'HH24:MI')               AS time,
-         t.type,
+         t.type::text                                                    AS type,
          t.concept,
          t.amount_cash                                                   AS cash,
          t.amount_transfer                                               AS transfer,
          (t.amount_cash + t.amount_transfer)                            AS total,
          u.full_name                                                     AS created_by
        FROM transactions t
+       JOIN cash_sessions cs ON cs.id = t.cash_session_id
        JOIN users u ON u.id = t.created_by_user_id
-       WHERE (t.created_at AT TIME ZONE $1)::date BETWEEN $2::date AND $3::date
-       ORDER BY t.created_at ASC`,
+       WHERE cs.date BETWEEN $2::date AND $3::date
+
+       UNION ALL
+
+       SELECT
+         cs.date::text                                                   AS date,
+         TO_CHAR(e.created_at AT TIME ZONE $1, 'HH24:MI')               AS time,
+         'expense'                                                       AS type,
+         e.description                                                   AS concept,
+         e.amount                                                        AS cash,
+         0                                                               AS transfer,
+         e.amount                                                        AS total,
+         NULL                                                            AS created_by
+       FROM expenses e
+       JOIN cash_sessions cs ON cs.id = e.cash_session_id
+       WHERE cs.date BETWEEN $2::date AND $3::date
+         AND e.deleted_at IS NULL
+
+       ORDER BY date ASC, time ASC`,
       [this.TZ, from, to],
     );
 
@@ -469,19 +492,20 @@ export class ReportsService {
       }[]
     >(
       `SELECT
-         COALESCE(SUM(amount_cash + amount_transfer), 0)                               AS total_revenue,
-         COALESCE(SUM(CASE WHEN type = 'booking' THEN amount_cash + amount_transfer ELSE 0 END), 0) AS bookings_revenue,
-         COALESCE(SUM(CASE WHEN type = 'sale'    THEN amount_cash + amount_transfer ELSE 0 END), 0) AS sales_revenue,
-         COALESCE(SUM(amount_cash), 0)                                                 AS cash_total,
-         COALESCE(SUM(amount_transfer), 0)                                             AS transfer_total,
-         COUNT(*)                                                                       AS tx_count,
+         COALESCE(SUM(t.amount_cash + t.amount_transfer), 0)                               AS total_revenue,
+         COALESCE(SUM(CASE WHEN t.type = 'booking' THEN t.amount_cash + t.amount_transfer ELSE 0 END), 0) AS bookings_revenue,
+         COALESCE(SUM(CASE WHEN t.type = 'sale'    THEN t.amount_cash + t.amount_transfer ELSE 0 END), 0) AS sales_revenue,
+         COALESCE(SUM(t.amount_cash), 0)                                                 AS cash_total,
+         COALESCE(SUM(t.amount_transfer), 0)                                             AS transfer_total,
+         COUNT(*)                                                                         AS tx_count,
          (SELECT COALESCE(SUM(amount), 0)
           FROM expenses
-          WHERE date BETWEEN $2::date AND $3::date
-            AND deleted_at IS NULL)                                                     AS total_expenses
-       FROM transactions
-       WHERE (created_at AT TIME ZONE $1)::date BETWEEN $2::date AND $3::date`,
-      [this.TZ, from, to],
+          WHERE date BETWEEN $1::date AND $2::date
+            AND deleted_at IS NULL)                                                       AS total_expenses
+       FROM transactions t
+       JOIN cash_sessions cs ON cs.id = t.cash_session_id
+       WHERE cs.date BETWEEN $1::date AND $2::date`,
+      [from, to],
     );
 
     const r = rows[0];

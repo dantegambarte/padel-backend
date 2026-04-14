@@ -1,4 +1,10 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ConflictException,
+  Logger,
+} from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 
@@ -56,6 +62,56 @@ export class FixedBookingsService {
   }
 
   /**
+   * Convierte una hora "HH:MM" a minutos desde medianoche.
+   * Soporta madrugada (00:xx, 01:xx) tratándola como 24:xx, 25:xx
+   * para que el orden temporal sea coherente con horas nocturnas (≥09:00).
+   */
+  private toMinutes(hour: string): number {
+    const [h, m] = hour.split(':').map(Number);
+    const adjusted = h < 9 ? h + 24 : h;
+    return adjusted * 60 + m;
+  }
+
+  /**
+   * Verifica si dos rangos horarios [startA, endA) y [startB, endB) se solapan.
+   */
+  private rangesOverlap(startA: number, endA: number, startB: number, endB: number): boolean {
+    return startA < endB && startB < endA;
+  }
+
+  /**
+   * Lanza ConflictException si el slot (courtId, dayOfWeek, hour, durationMinutes)
+   * se solapa con algún turno fijo activo existente.
+   * @param excludeId  ID del turno fijo a excluir (en edición: el propio turno).
+   */
+  private async checkFixedOverlap(
+    courtId: string,
+    dayOfWeek: number,
+    hour: string,
+    durationMinutes: number,
+    excludeId?: string,
+  ): Promise<void> {
+    const candidates = await this.fixedRepo.find({
+      where: { courtId, dayOfWeek, isActive: true },
+    });
+
+    const newStart = this.toMinutes(hour);
+    const newEnd = newStart + durationMinutes;
+
+    for (const fb of candidates) {
+      if (excludeId && fb.id === excludeId) continue;
+      const existStart = this.toMinutes(fb.hour);
+      const existEnd = existStart + fb.durationMinutes;
+      if (this.rangesOverlap(newStart, newEnd, existStart, existEnd)) {
+        throw new ConflictException({
+          message: 'CONFLICT_OVERLAP',
+          detail: `La cancha ya tiene un turno fijo de ${fb.clientName} a las ${fb.hour} (${fb.durationMinutes} min) que se superpone con el horario solicitado.`,
+        });
+      }
+    }
+  }
+
+  /**
    * Crea un turno fijo y genera automáticamente los Booking individuales
    * para las próximas {@link WEEKS_TO_GENERATE} semanas.
    */
@@ -68,7 +124,8 @@ export class FixedBookingsService {
       throw new BadRequestException('No se pueden asignar turnos a una cancha inactiva.');
     }
 
-    // ── Validación de solapamiento en la startDate ───────────────────────────
+    await this.checkFixedOverlap(dto.courtId, dto.dayOfWeek, dto.hour, dto.durationMinutes ?? 60);
+
     const conflict = await this.bookingRepo.findOne({
       where: {
         courtId: dto.courtId,
@@ -85,7 +142,6 @@ export class FixedBookingsService {
         nextAvailableDate,
       });
     }
-    // ────────────────────────────────────────────────────────────────────────
 
     const fixed = this.fixedRepo.create({
       clientName: dto.clientName,
@@ -136,6 +192,14 @@ export class FixedBookingsService {
       (dto.hour !== undefined && dto.hour !== fixed.hour) ||
       (dto.durationMinutes !== undefined && dto.durationMinutes !== fixed.durationMinutes) ||
       (dto.courtId !== undefined && dto.courtId !== fixed.courtId);
+
+    if (structuralChange) {
+      const newCourtId = dto.courtId ?? fixed.courtId;
+      const newDay = dto.dayOfWeek ?? fixed.dayOfWeek;
+      const newHour = dto.hour ?? fixed.hour;
+      const newDuration = dto.durationMinutes ?? fixed.durationMinutes;
+      await this.checkFixedOverlap(newCourtId, newDay, newHour, newDuration, id);
+    }
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();

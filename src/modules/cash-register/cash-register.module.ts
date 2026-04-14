@@ -5,9 +5,13 @@ import { CashRegisterService } from './cash-register.service';
 import { CashSession } from './entities/cash-session.entity';
 import { Transaction } from './entities/transaction.entity';
 import { DailyClosureRecord } from './entities/daily-closure.entity';
+import { SystemConfigModule } from '../system-config/system-config.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([CashSession, Transaction, DailyClosureRecord])],
+  imports: [
+    TypeOrmModule.forFeature([CashSession, Transaction, DailyClosureRecord]),
+    SystemConfigModule,
+  ],
   controllers: [CashRegisterController],
   providers: [CashRegisterService],
   exports: [CashRegisterService],
