@@ -8,6 +8,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+
 import { CashSession } from '../../cash-register/entities/cash-session.entity';
 import { User } from '../../users/entities/user.entity';
 
@@ -17,6 +18,12 @@ export enum PaymentMethod {
   TRANSFER = 'Transferencia',
   CARD = 'Tarjeta',
   OTHER = 'Otro',
+}
+
+/** Origen de los fondos del egreso. */
+export enum FundSource {
+  CASH_REGISTER = 'cash_register',
+  GENERAL_FUNDS = 'general_funds',
 }
 
 /** Categorías predefinidas de egresos. */
@@ -65,6 +72,19 @@ export class Expense {
 
   @Column({ name: 'cash_session_id', type: 'uuid', nullable: true })
   cashSessionId: string | null;
+
+  /**
+   * Origen de los fondos. 'cash_register' impacta en cierre Z; 'general_funds' no.
+   * NULL en registros anteriores a esta feature se tratan como 'cash_register'.
+   */
+  @Column({
+    name: 'fund_source',
+    type: 'enum',
+    enum: FundSource,
+    default: FundSource.CASH_REGISTER,
+    nullable: true,
+  })
+  fundSource: FundSource | null;
 
   /** Usuario que registró el egreso (para auditoría y RBAC). */
   @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL', eager: false })

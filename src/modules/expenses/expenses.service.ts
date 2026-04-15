@@ -8,7 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
-import { Expense, ExpenseCategory, PaymentMethod } from './entities/expense.entity';
+import { Expense, ExpenseCategory, FundSource, PaymentMethod } from './entities/expense.entity';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
 import { CashRegisterService } from '../cash-register/cash-register.service';
@@ -64,9 +64,16 @@ export class ExpensesService {
       );
     }
 
-    const expense = this.expenseRepo.create({ ...dto, createdByUserId });
+    // Empleados siempre usan caja; admins pueden elegir fondos generales.
+    const isAdmin = userRole === UserRole.ADMIN;
+    const fundSource: FundSource =
+      isAdmin && dto.fundSource === FundSource.GENERAL_FUNDS
+        ? FundSource.GENERAL_FUNDS
+        : FundSource.CASH_REGISTER;
 
-    if (dto.paymentMethod === PaymentMethod.CASH) {
+    const expense = this.expenseRepo.create({ ...dto, createdByUserId, fundSource });
+
+    if (fundSource === FundSource.CASH_REGISTER && dto.paymentMethod === PaymentMethod.CASH) {
       const sessionData = await this.cashRegisterService.getCurrentSession();
       if (!sessionData.session || !sessionData.isOpen) {
         throw new BadRequestException({
@@ -87,6 +94,7 @@ export class ExpensesService {
 
       expense.cashSessionId = sessionData.session.id;
     }
+    // Si fundSource === GENERAL_FUNDS → cashSessionId queda null (no impacta cierre Z)
 
     const saved = await this.expenseRepo.save(expense);
     this.logger.log(
