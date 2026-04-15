@@ -528,35 +528,4 @@ export class ReportsService {
     };
   }
 
-  /** Retorna los productos con stock igual o inferior al umbral mínimo. */
-  async getLowStock(): Promise<
-    {
-      id: string;
-      name: string;
-      stock: number;
-      minStock: number;
-    }[]
-  > {
-    const rows = await this.dataSource.query<
-      {
-        id: string;
-        name: string;
-        stock: string;
-        min_stock: string;
-      }[]
-    >(
-      `SELECT id, name, stock, min_stock
-       FROM products
-       WHERE stock <= min_stock
-         AND is_active = true
-       ORDER BY (stock::numeric / NULLIF(min_stock, 0)) ASC NULLS LAST, name ASC`,
-    );
-
-    return rows.map((r) => ({
-      id: r.id,
-      name: r.name,
-      stock: parseInt(r.stock, 10),
-      minStock: parseInt(r.min_stock, 10),
-    }));
-  }
 }
