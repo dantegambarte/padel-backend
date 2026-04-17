@@ -13,6 +13,7 @@ import { User } from '../../users/entities/user.entity';
 export enum TransactionType {
   BOOKING = 'booking',
   SALE = 'sale',
+  SETTLEMENT = 'settlement',
 }
 
 /**
