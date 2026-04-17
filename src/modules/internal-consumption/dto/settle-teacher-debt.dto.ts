@@ -1,8 +1,16 @@
-import { IsUUID, IsOptional, IsString, MaxLength, IsArray } from 'class-validator';
+import { IsUUID, IsOptional, IsString, MaxLength, IsArray, IsEnum } from 'class-validator';
+
+export enum PaymentMethod {
+  CASH = 'cash',
+  TRANSFER = 'transfer',
+}
 
 export class SettleTeacherDebtDto {
   @IsUUID()
   teacherId: string;
+
+  @IsEnum(PaymentMethod)
+  paymentMethod: PaymentMethod;
 
   /** If provided, settle only these specific consumption IDs. If omitted, settle all pending. */
   @IsOptional()

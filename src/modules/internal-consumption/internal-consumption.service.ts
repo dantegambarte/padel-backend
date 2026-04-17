@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  NotFoundException,
-  BadRequestException,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Between, FindOptionsWhere } from 'typeorm';
 
@@ -14,9 +9,11 @@ import {
 } from './entities/internal-consumption.entity';
 import { CreateInternalConsumptionDto } from './dto/create-internal-consumption.dto';
 import { QueryInternalConsumptionDto } from './dto/query-internal-consumption.dto';
-import { SettleTeacherDebtDto } from './dto/settle-teacher-debt.dto';
+import { SettleTeacherDebtDto, PaymentMethod } from './dto/settle-teacher-debt.dto';
 import { ProductsService } from '../products/products.service';
 import { Product } from '../products/entities/product.entity';
+import { CashRegisterService } from '../cash-register/cash-register.service';
+import { Transaction, TransactionType } from '../cash-register/entities/transaction.entity';
 
 @Injectable()
 export class InternalConsumptionService {
@@ -28,6 +25,7 @@ export class InternalConsumptionService {
 
     private readonly productsService: ProductsService,
     private readonly dataSource: DataSource,
+    private readonly cashRegisterService: CashRegisterService,
   ) {}
 
   /**
@@ -57,13 +55,8 @@ export class InternalConsumptionService {
     await queryRunner.startTransaction();
 
     try {
-      // Decrement stock
-      await queryRunner.manager.decrement(
-        Product,
-        { id: dto.productId },
-        'stock',
-        dto.quantity,
-      );
+      product.stock -= Number(dto.quantity);
+      await queryRunner.manager.save(Product, product);
 
       const consumption = queryRunner.manager.create(InternalConsumption, {
         productId: dto.productId,
@@ -127,19 +120,21 @@ export class InternalConsumptionService {
   /**
    * Settle all pending_payment records for a teacher (or specific IDs).
    * Transitions: pending_payment → paid.
+   * Requires an open cash session. Inserts a Transaction for the arqueo.
    */
-  async settleTeacherDebt(dto: SettleTeacherDebtDto): Promise<InternalConsumption[]> {
+  async settleTeacherDebt(
+    dto: SettleTeacherDebtDto,
+    userId: string,
+  ): Promise<InternalConsumption[]> {
     const where: FindOptionsWhere<InternalConsumption> = {
       teacherId: dto.teacherId,
       status: InternalConsumptionStatus.PENDING_PAYMENT,
     };
 
-    const pending = await this.repo.find({ where });
+    const pending = await this.repo.find({ where, relations: ['teacher'] });
 
     if (pending.length === 0) {
-      throw new NotFoundException(
-        `No hay consumos pendientes para el profesor #${dto.teacherId}.`,
-      );
+      throw new NotFoundException(`No hay consumos pendientes para el profesor #${dto.teacherId}.`);
     }
 
     let toSettle = pending;
@@ -153,17 +148,48 @@ export class InternalConsumptionService {
       }
     }
 
-    await this.repo.update(
-      toSettle.map((c) => c.id),
-      {
-        status: InternalConsumptionStatus.PAID,
-        notes: dto.notes ?? undefined,
-      },
-    );
+    const totalAmount = toSettle.reduce((sum, c) => sum + Number(c.unitCostPrice) * c.quantity, 0);
 
-    this.logger.log(
-      `Deuda liquidada: ${toSettle.length} consumo(s) del profesor #${dto.teacherId}.`,
-    );
+    const teacherName = toSettle[0]?.teacher?.fullName ?? `Profesor #${dto.teacherId.slice(0, 8)}`;
+
+    const qr = this.dataSource.createQueryRunner();
+    await qr.connect();
+    await qr.startTransaction();
+
+    try {
+      const session = await this.cashRegisterService.getActiveSessionOrFail(qr, userId);
+
+      await qr.manager.update(
+        InternalConsumption,
+        toSettle.map((c) => c.id),
+        {
+          status: InternalConsumptionStatus.PAID,
+          notes: dto.notes ?? undefined,
+        },
+      );
+
+      const tx = qr.manager.create(Transaction, {
+        cashSessionId: session.id,
+        type: TransactionType.SETTLEMENT,
+        referenceId: dto.teacherId,
+        concept: `Liquidación Consumos - ${teacherName}`,
+        amountCash: dto.paymentMethod === PaymentMethod.CASH ? totalAmount : 0,
+        amountTransfer: dto.paymentMethod === PaymentMethod.TRANSFER ? totalAmount : 0,
+        createdByUserId: userId,
+      });
+      await qr.manager.save(Transaction, tx);
+
+      await qr.commitTransaction();
+
+      this.logger.log(
+        `Deuda liquidada: ${toSettle.length} consumo(s) de ${teacherName} — $${totalAmount} (${dto.paymentMethod}). Sesión: ${session.id}.`,
+      );
+    } catch (error) {
+      await qr.rollbackTransaction();
+      throw error;
+    } finally {
+      await qr.release();
+    }
 
     return this.repo.findBy(toSettle.map((c) => ({ id: c.id })));
   }

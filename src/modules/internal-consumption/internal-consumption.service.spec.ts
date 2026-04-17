@@ -10,8 +10,9 @@ import {
   InternalConsumptionConsumerType,
 } from './entities/internal-consumption.entity';
 import { ProductsService } from '../products/products.service';
+import { CashRegisterService } from '../cash-register/cash-register.service';
 import { CreateInternalConsumptionDto } from './dto/create-internal-consumption.dto';
-import { SettleTeacherDebtDto } from './dto/settle-teacher-debt.dto';
+import { SettleTeacherDebtDto, PaymentMethod } from './dto/settle-teacher-debt.dto';
 import { Product } from '../products/entities/product.entity';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -39,9 +40,7 @@ function makeProduct(overrides: Partial<Product> = {}): Product {
   } as unknown as Product;
 }
 
-function makeConsumption(
-  overrides: Partial<InternalConsumption> = {},
-): InternalConsumption {
+function makeConsumption(overrides: Partial<InternalConsumption> = {}): InternalConsumption {
   return {
     id: 'ic-uuid-001',
     productId: 'product-uuid-001',
@@ -70,26 +69,32 @@ function makeQueryRunner(savedEntity?: InternalConsumption) {
   const decrementFn = jest.fn().mockResolvedValue(undefined);
   const createFn = jest.fn().mockReturnValue(savedEntity ?? makeConsumption());
   const saveFn = jest.fn().mockResolvedValue(savedEntity ?? makeConsumption());
+  const updateFn = jest.fn().mockResolvedValue(undefined);
+  const findOneFn = jest.fn().mockResolvedValue(null);
   const commitFn = jest.fn().mockResolvedValue(undefined);
   const rollbackFn = jest.fn().mockResolvedValue(undefined);
   const releaseFn = jest.fn().mockResolvedValue(undefined);
   const connectFn = jest.fn().mockResolvedValue(undefined);
   const startTransactionFn = jest.fn().mockResolvedValue(undefined);
+  const queryFn = jest.fn().mockResolvedValue(undefined);
 
   const qr = {
     connect: connectFn,
     startTransaction: startTransactionFn,
+    query: queryFn,
     manager: {
       decrement: decrementFn,
       create: createFn,
       save: saveFn,
+      update: updateFn,
+      findOne: findOneFn,
     },
     commitTransaction: commitFn,
     rollbackTransaction: rollbackFn,
     release: releaseFn,
   };
 
-  return { qr, decrementFn, createFn, saveFn, commitFn, rollbackFn, releaseFn };
+  return { qr, decrementFn, createFn, saveFn, updateFn, commitFn, rollbackFn, releaseFn };
 }
 
 // ─── Suite ────────────────────────────────────────────────────────────────────
@@ -98,6 +103,7 @@ describe('InternalConsumptionService', () => {
   let service: InternalConsumptionService;
   let repo: jest.Mocked<Repository<InternalConsumption>>;
   let productsService: jest.Mocked<ProductsService>;
+  let cashRegisterService: jest.Mocked<CashRegisterService>;
   let dataSource: jest.Mocked<DataSource>;
 
   beforeEach(async () => {
@@ -113,6 +119,10 @@ describe('InternalConsumptionService', () => {
       findOne: jest.fn(),
     };
 
+    const mockCashRegisterService = {
+      getActiveSessionOrFail: jest.fn(),
+    };
+
     const mockDataSource = {
       createQueryRunner: jest.fn(),
     };
@@ -122,6 +132,7 @@ describe('InternalConsumptionService', () => {
         InternalConsumptionService,
         { provide: getRepositoryToken(InternalConsumption), useValue: mockRepo },
         { provide: ProductsService, useValue: mockProductsService },
+        { provide: CashRegisterService, useValue: mockCashRegisterService },
         { provide: DataSource, useValue: mockDataSource },
       ],
     }).compile();
@@ -129,6 +140,7 @@ describe('InternalConsumptionService', () => {
     service = module.get(InternalConsumptionService);
     repo = module.get(getRepositoryToken(InternalConsumption));
     productsService = module.get(ProductsService);
+    cashRegisterService = module.get(CashRegisterService);
     dataSource = module.get(DataSource);
   });
 
@@ -155,7 +167,12 @@ describe('InternalConsumptionService', () => {
       const result = await service.create(dto, ADMIN_USER_ID);
 
       expect(productsService.findOne).toHaveBeenCalledWith(dto.productId);
-      expect(decrementFn).toHaveBeenCalledWith(Product, { id: dto.productId }, 'stock', dto.quantity);
+      expect(decrementFn).toHaveBeenCalledWith(
+        Product,
+        { id: dto.productId },
+        'stock',
+        dto.quantity,
+      );
       expect(commitFn).toHaveBeenCalled();
       expect(result.status).toBe(InternalConsumptionStatus.PENDING_PAYMENT);
     });
@@ -189,9 +206,9 @@ describe('InternalConsumptionService', () => {
     it('throws BadRequestException when stock insufficient', async () => {
       productsService.findOne.mockResolvedValue(makeProduct({ stock: 1 }));
 
-      await expect(
-        service.create({ ...dto, quantity: 5 }, ADMIN_USER_ID),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.create({ ...dto, quantity: 5 }, ADMIN_USER_ID)).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('rolls back transaction on error', async () => {
@@ -273,45 +290,53 @@ describe('InternalConsumptionService', () => {
   // ── settleTeacherDebt ────────────────────────────────────────────────────────
 
   describe('settleTeacherDebt', () => {
-    const dto: SettleTeacherDebtDto = { teacherId: 'teacher-uuid-001' };
+    const dto: SettleTeacherDebtDto = {
+      teacherId: 'teacher-uuid-001',
+      paymentMethod: PaymentMethod.CASH,
+    };
+    const fakeSession = { id: 'session-uuid-001' };
+
+    beforeEach(() => {
+      const { qr } = makeQueryRunner();
+      dataSource.createQueryRunner.mockReturnValue(qr as any);
+      cashRegisterService.getActiveSessionOrFail.mockResolvedValue(fakeSession as any);
+    });
 
     it('settles all pending records for teacher', async () => {
       const pending = [makeConsumption(), makeConsumption({ id: 'ic-uuid-002' })];
       repo.find.mockResolvedValue(pending);
-      repo.update.mockResolvedValue(undefined as any);
       repo.findBy.mockResolvedValue(
         pending.map((c) => ({ ...c, status: InternalConsumptionStatus.PAID })) as any,
       );
 
-      const result = await service.settleTeacherDebt(dto);
+      const result = await service.settleTeacherDebt(dto, ADMIN_USER_ID);
 
-      expect(repo.update).toHaveBeenCalledWith(
-        ['ic-uuid-001', 'ic-uuid-002'],
-        expect.objectContaining({ status: InternalConsumptionStatus.PAID }),
-      );
+      expect(cashRegisterService.getActiveSessionOrFail).toHaveBeenCalled();
       expect(result[0].status).toBe(InternalConsumptionStatus.PAID);
     });
 
     it('settles only specific IDs when consumptionIds provided', async () => {
       const pending = [makeConsumption(), makeConsumption({ id: 'ic-uuid-002' })];
       repo.find.mockResolvedValue(pending);
-      repo.update.mockResolvedValue(undefined as any);
       repo.findBy.mockResolvedValue([
         { ...pending[0], status: InternalConsumptionStatus.PAID },
       ] as any);
 
-      await service.settleTeacherDebt({ ...dto, consumptionIds: ['ic-uuid-001'] });
-
-      expect(repo.update).toHaveBeenCalledWith(
-        ['ic-uuid-001'],
-        expect.objectContaining({ status: InternalConsumptionStatus.PAID }),
+      const result = await service.settleTeacherDebt(
+        { ...dto, consumptionIds: ['ic-uuid-001'] },
+        ADMIN_USER_ID,
       );
+
+      expect(result).toHaveLength(1);
+      expect(result[0].status).toBe(InternalConsumptionStatus.PAID);
     });
 
     it('throws NotFoundException when no pending records', async () => {
       repo.find.mockResolvedValue([]);
 
-      await expect(service.settleTeacherDebt(dto)).rejects.toThrow(NotFoundException);
+      await expect(service.settleTeacherDebt(dto, ADMIN_USER_ID)).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('throws BadRequestException when consumptionIds not matching pending', async () => {
@@ -319,7 +344,7 @@ describe('InternalConsumptionService', () => {
       repo.find.mockResolvedValue(pending);
 
       await expect(
-        service.settleTeacherDebt({ ...dto, consumptionIds: ['other-uuid'] }),
+        service.settleTeacherDebt({ ...dto, consumptionIds: ['other-uuid'] }, ADMIN_USER_ID),
       ).rejects.toThrow(BadRequestException);
     });
   });

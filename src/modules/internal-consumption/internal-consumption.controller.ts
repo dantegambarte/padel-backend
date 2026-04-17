@@ -31,10 +31,7 @@ export class InternalConsumptionController {
   /** POST /internal-consumption — register a new consumption */
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  create(
-    @Body() dto: CreateInternalConsumptionDto,
-    @CurrentUser('id') userId: string,
-  ) {
+  create(@Body() dto: CreateInternalConsumptionDto, @CurrentUser('id') userId: string) {
     return this.service.create(dto, userId);
   }
 
@@ -59,7 +56,7 @@ export class InternalConsumptionController {
   /** PATCH /internal-consumption/settle — liquidate teacher debt */
   @Patch('settle')
   @HttpCode(HttpStatus.OK)
-  settle(@Body() dto: SettleTeacherDebtDto) {
-    return this.service.settleTeacherDebt(dto);
+  settle(@Body() dto: SettleTeacherDebtDto, @CurrentUser('id') userId: string) {
+    return this.service.settleTeacherDebt(dto, userId);
   }
 }
