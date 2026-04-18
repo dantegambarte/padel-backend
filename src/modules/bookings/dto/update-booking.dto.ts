@@ -11,10 +11,31 @@ import {
   ValidateNested,
   MaxLength,
   Matches,
+  IsIn,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { BookingStatus } from '../entities/booking.entity';
 import { BookingItemInputDto } from './create-booking.dto';
+
+export class PlayerPaymentDetailDto {
+  @IsIn(['cash', 'transfer'])
+  method: 'cash' | 'transfer';
+
+  @IsNumber()
+  @Min(0)
+  amount: number;
+
+  @IsNumber()
+  @Min(0)
+  courtAmount: number;
+
+  @IsNumber()
+  @Min(0)
+  consumablesTotal: number;
+
+  @IsArray()
+  consumableItems: { name: string; unitPrice: number; qty: number }[];
+}
 
 export class UpdateBookingDto {
   @ApiPropertyOptional({ example: 'Juan Pérez' })
@@ -96,4 +117,13 @@ export class UpdateBookingDto {
   @IsNumber()
   @Min(1)
   playerCount?: number;
+
+  @ApiPropertyOptional({
+    description: 'Nuevas entradas del historial de pagos por jugador de esta sesión',
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PlayerPaymentDetailDto)
+  playerPaymentDetails?: PlayerPaymentDetailDto[];
 }

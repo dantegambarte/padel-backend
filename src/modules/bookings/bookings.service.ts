@@ -490,16 +490,24 @@ export class BookingsService {
           const paymentFields: Partial<BookingPayment> = {};
           if (dto.amountCash !== undefined) paymentFields.amountCash = dto.amountCash;
           if (dto.amountTransfer !== undefined) paymentFields.amountTransfer = dto.amountTransfer;
+          if (dto.playerPaymentDetails && dto.playerPaymentDetails.length > 0) {
+            const existing = bookingWithRelations.payment.playerPaymentDetails ?? [];
+            paymentFields.playerPaymentDetails = [...existing, ...dto.playerPaymentDetails];
+          }
           await queryRunner.manager.update(
             BookingPayment,
             bookingWithRelations.payment.id,
             paymentFields,
           );
         } else {
+          const initialDetails =
+            dto.playerPaymentDetails && dto.playerPaymentDetails.length > 0
+              ? JSON.stringify(dto.playerPaymentDetails)
+              : null;
           await queryRunner.query(
-            `INSERT INTO booking_payments (booking_id, amount_cash, amount_transfer)
-             VALUES ($1, $2, $3)`,
-            [booking.id, dto.amountCash ?? 0, dto.amountTransfer ?? 0],
+            `INSERT INTO booking_payments (booking_id, amount_cash, amount_transfer, player_payment_details)
+             VALUES ($1, $2, $3, $4)`,
+            [booking.id, dto.amountCash ?? 0, dto.amountTransfer ?? 0, initialDetails],
           );
         }
 
