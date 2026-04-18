@@ -30,6 +30,7 @@ import { TeachersModule } from './modules/teachers/teachers.module';
 import { RemindersModule } from './modules/reminders/reminders.module';
 
 import { ExpensesModule } from './modules/expenses/expenses.module';
+import { InternalConsumptionModule } from './modules/internal-consumption/internal-consumption.module';
 
 import { PricingShiftsModule } from './modules/pricing-shifts/pricing-shifts.module';
 
@@ -75,6 +76,7 @@ import { SearchModule } from './modules/search/search.module';
     TeachersModule,
     RemindersModule,
     ExpensesModule,
+    InternalConsumptionModule,
     PricingShiftsModule,
     SearchModule,
   ],

@@ -11,6 +11,8 @@ import {
   Max,
   MaxLength,
   Matches,
+  ValidateIf,
+  Equals,
 } from 'class-validator';
 
 export class CreateFixedBookingDto {
@@ -47,6 +49,8 @@ export class CreateFixedBookingDto {
   @IsOptional()
   @IsInt()
   @IsIn([30, 60, 90, 120], { message: 'La duración debe ser 30, 60, 90 o 120 minutos.' })
+  @ValidateIf((o) => !!o.teacherId)
+  @Equals(60, { message: 'Las clases con profesor deben durar exactamente 60 minutos.' })
   durationMinutes?: number;
 
   @ApiProperty({ example: 'uuid-de-la-cancha' })

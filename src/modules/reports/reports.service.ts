@@ -218,6 +218,7 @@ export class ReportsService {
       transfer: number;
       total: number;
       createdBy: string;
+      referenceId: string | null;
     }[]
   > {
     const { from, to } = this.resolveDateRange(dto);
@@ -232,6 +233,7 @@ export class ReportsService {
         transfer: string;
         total: string;
         created_by: string;
+        reference_id: string | null;
       }[]
     >(
       `SELECT
@@ -242,7 +244,8 @@ export class ReportsService {
          t.amount_cash                                                   AS cash,
          t.amount_transfer                                               AS transfer,
          (t.amount_cash + t.amount_transfer)                            AS total,
-         u.full_name                                                     AS created_by
+         u.full_name                                                     AS created_by,
+         t.reference_id                                                  AS reference_id
        FROM transactions t
        JOIN cash_sessions cs ON cs.id = t.cash_session_id
        JOIN users u ON u.id = t.created_by_user_id
@@ -258,7 +261,8 @@ export class ReportsService {
          e.amount                                                        AS cash,
          0                                                               AS transfer,
          e.amount                                                        AS total,
-         NULL                                                            AS created_by
+         NULL                                                            AS created_by,
+         NULL                                                            AS reference_id
        FROM expenses e
        JOIN cash_sessions cs ON cs.id = e.cash_session_id
        WHERE cs.date BETWEEN $2::date AND $3::date
@@ -277,6 +281,7 @@ export class ReportsService {
       transfer: parseFloat(r.transfer),
       total: parseFloat(r.total),
       createdBy: r.created_by,
+      referenceId: r.reference_id ?? null,
     }));
   }
 
@@ -523,35 +528,4 @@ export class ReportsService {
     };
   }
 
-  /** Retorna los productos con stock igual o inferior al umbral mínimo. */
-  async getLowStock(): Promise<
-    {
-      id: string;
-      name: string;
-      stock: number;
-      minStock: number;
-    }[]
-  > {
-    const rows = await this.dataSource.query<
-      {
-        id: string;
-        name: string;
-        stock: string;
-        min_stock: string;
-      }[]
-    >(
-      `SELECT id, name, stock, min_stock
-       FROM products
-       WHERE stock <= min_stock
-         AND is_active = true
-       ORDER BY (stock::numeric / NULLIF(min_stock, 0)) ASC NULLS LAST, name ASC`,
-    );
-
-    return rows.map((r) => ({
-      id: r.id,
-      name: r.name,
-      stock: parseInt(r.stock, 10),
-      minStock: parseInt(r.min_stock, 10),
-    }));
-  }
 }

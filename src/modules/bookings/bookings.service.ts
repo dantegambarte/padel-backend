@@ -254,7 +254,10 @@ export class BookingsService {
         // adoptada por la próxima caja al hacer sweep en openSession().
         let cashSessionId: string | null = null;
         if (amountCash > 0) {
-          const session = await this.cashRegisterService.getActiveSessionOrFail(queryRunner, user.id);
+          const session = await this.cashRegisterService.getActiveSessionOrFail(
+            queryRunner,
+            user.id,
+          );
           cashSessionId = session.id;
         } else {
           const session = await this.cashRegisterService.getActiveSession(queryRunner);
@@ -395,51 +398,56 @@ export class BookingsService {
       if (dto.items !== undefined) {
         const existingItems = bookingWithRelations?.items ?? [];
 
-        // Separar items pagados (no tocar) de los impagos (reemplazar)
-        const paidItems = existingItems.filter((i) => i.isPaid);
-        const unpaidItems = existingItems.filter((i) => !i.isPaid);
+        const dtoItemsWithId = dto.items.filter((i) => i.id);
+        const dtoItemsWithoutId = dto.items.filter((i) => !i.id);
+        const dtoItemIds = new Set(dtoItemsWithId.map((i) => i.id!));
 
-        // Eliminar solo los items impagos anteriores
-        if (unpaidItems.length > 0) {
-          const ids = unpaidItems.map((i) => i.id);
+        const itemsToDelete = existingItems.filter((i) => !i.isPaid && !dtoItemIds.has(i.id));
+        if (itemsToDelete.length > 0) {
+          const ids = itemsToDelete.map((i) => i.id);
           const placeholders = ids.map((_, idx) => `$${idx + 1}`).join(', ');
           await queryRunner.query(`DELETE FROM booking_items WHERE id IN (${placeholders})`, ids);
         }
 
-        // Separar el DTO: items marcados como pagados vs impagos
-        const paidDtoItems = dto.items.filter((i) => i.isPaid);
-        const unpaidDtoItems = dto.items.filter((i) => !i.isPaid);
+        for (const dtoItem of dtoItemsWithId) {
+          await queryRunner.query(
+            `UPDATE booking_items SET quantity = $1, is_paid = $2 WHERE id = $3`,
+            [dtoItem.quantity, dtoItem.isPaid ?? false, dtoItem.id],
+          );
+        }
 
-        // Procesar solo los items impagos (con stock disponible considerando los pagados existentes)
-        const allExistingForStock = [...paidItems, ...unpaidItems];
-        const newUnpaidItems = await this.processItems(unpaidDtoItems, queryRunner, allExistingForStock);
-
-        // Items pagados del DTO que no corresponden a un item pagado existente (nuevos pagados)
-        const existingPaidProductIds = new Set(paidItems.map((i) => i.productId));
-        const newPaidDtoItems = paidDtoItems.filter((i) => !existingPaidProductIds.has(i.productId));
-        const newPaidItems = newPaidDtoItems.length > 0
-          ? await this.processItems(newPaidDtoItems, queryRunner, allExistingForStock)
-          : [];
-
-        const paidTotal = paidItems.reduce((sum, i) => sum + Number(i.unitPrice) * i.quantity, 0);
-        const newUnpaidTotal = newUnpaidItems.reduce((sum, i) => sum + Number(i.unitPrice) * i.quantity, 0);
-        const newPaidTotal = newPaidItems.reduce((sum, i) => sum + Number(i.unitPrice) * i.quantity, 0);
-        itemsTotal = paidTotal + newUnpaidTotal + newPaidTotal;
-
-        for (const item of newUnpaidItems) {
+        // INSERT new items (no id supplied)
+        const allExistingForStock = existingItems;
+        const newItems =
+          dtoItemsWithoutId.length > 0
+            ? await this.processItems(dtoItemsWithoutId, queryRunner, allExistingForStock)
+            : [];
+        for (let idx = 0; idx < newItems.length; idx++) {
+          const item = newItems[idx];
+          const isPaid = dtoItemsWithoutId[idx]?.isPaid ?? false;
           await queryRunner.query(
             `INSERT INTO booking_items (booking_id, product_id, quantity, unit_price, is_paid)
              VALUES ($1, $2, $3, $4, $5)`,
-            [booking.id, item.productId, item.quantity, item.unitPrice, false],
+            [booking.id, item.productId, item.quantity, item.unitPrice, isPaid],
           );
         }
-        for (const item of newPaidItems) {
-          await queryRunner.query(
-            `INSERT INTO booking_items (booking_id, product_id, quantity, unit_price, is_paid)
-             VALUES ($1, $2, $3, $4, $5)`,
-            [booking.id, item.productId, item.quantity, item.unitPrice, true],
-          );
-        }
+
+        // Recalculate total from updated state (re-read to reflect UPDATEs)
+        const updatedExisting = existingItems
+          .filter((i) => !itemsToDelete.some((d) => d.id === i.id))
+          .map((i) => {
+            const match = dtoItemsWithId.find((d) => d.id === i.id);
+            return match ? { ...i, quantity: match.quantity, isPaid: match.isPaid ?? false } : i;
+          });
+        const existingTotal = updatedExisting.reduce(
+          (sum, i) => sum + Number(i.unitPrice) * i.quantity,
+          0,
+        );
+        const newItemsTotal = newItems.reduce(
+          (sum, i) => sum + Number(i.unitPrice) * i.quantity,
+          0,
+        );
+        itemsTotal = existingTotal + newItemsTotal;
       } else {
         itemsTotal = (bookingWithRelations?.items ?? []).reduce(
           (sum, i) => sum + Number(i.unitPrice) * i.quantity,
@@ -482,16 +490,24 @@ export class BookingsService {
           const paymentFields: Partial<BookingPayment> = {};
           if (dto.amountCash !== undefined) paymentFields.amountCash = dto.amountCash;
           if (dto.amountTransfer !== undefined) paymentFields.amountTransfer = dto.amountTransfer;
+          if (dto.playerPaymentDetails && dto.playerPaymentDetails.length > 0) {
+            const existing = bookingWithRelations.payment.playerPaymentDetails ?? [];
+            paymentFields.playerPaymentDetails = [...existing, ...dto.playerPaymentDetails];
+          }
           await queryRunner.manager.update(
             BookingPayment,
             bookingWithRelations.payment.id,
             paymentFields,
           );
         } else {
+          const initialDetails =
+            dto.playerPaymentDetails && dto.playerPaymentDetails.length > 0
+              ? JSON.stringify(dto.playerPaymentDetails)
+              : null;
           await queryRunner.query(
-            `INSERT INTO booking_payments (booking_id, amount_cash, amount_transfer)
-             VALUES ($1, $2, $3)`,
-            [booking.id, dto.amountCash ?? 0, dto.amountTransfer ?? 0],
+            `INSERT INTO booking_payments (booking_id, amount_cash, amount_transfer, player_payment_details)
+             VALUES ($1, $2, $3, $4)`,
+            [booking.id, dto.amountCash ?? 0, dto.amountTransfer ?? 0, initialDetails],
           );
         }
 

@@ -182,19 +182,6 @@ export class ReportsController {
     return this.reportsService.getExpenses(query);
   }
 
-  /**
-   * GET /api/v1/reports/low-stock
-   *
-   * Devuelve los productos activos cuyo stock es igual o menor al umbral mínimo.
-   * Utilizado por el widget de alertas en el Dashboard Admin.
-   */
-  @Get('low-stock')
-  @ApiOperation({ summary: 'Productos con stock bajo o agotado' })
-  @ApiResponse({ status: 200, description: 'Lista de productos en alerta de stock.' })
-  getLowStock() {
-    return this.reportsService.getLowStock();
-  }
-
   @Get('transactions')
   @ApiOperation({
     summary: 'Historial de transacciones (exportable)',
