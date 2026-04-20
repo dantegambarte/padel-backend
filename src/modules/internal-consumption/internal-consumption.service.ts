@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, Between, FindOptionsWhere } from 'typeorm';
+import { Repository, DataSource, Brackets, FindOptionsWhere } from 'typeorm';
+import { UserRole } from '../users/entities/user.entity';
 
 import {
   InternalConsumption,
@@ -89,22 +90,39 @@ export class InternalConsumptionService {
   }
 
   /** List consumptions with optional filters. */
-  async findAll(query: QueryInternalConsumptionDto): Promise<InternalConsumption[]> {
-    const where: FindOptionsWhere<InternalConsumption> = {};
+  async findAll(
+    query: QueryInternalConsumptionDto,
+    requestingUser: { id: string; role: UserRole },
+  ): Promise<InternalConsumption[]> {
+    const qb = this.repo
+      .createQueryBuilder('ic')
+      .leftJoinAndSelect('ic.product', 'product')
+      .leftJoinAndSelect('ic.user', 'user')
+      .leftJoinAndSelect('ic.teacher', 'teacher')
+      .leftJoinAndSelect('ic.createdByUser', 'createdByUser');
 
-    if (query.status) where.status = query.status;
-    if (query.consumerType) where.consumerType = query.consumerType;
-    if (query.teacherId) where.teacherId = query.teacherId;
-    if (query.userId) where.userId = query.userId;
-    if (query.dateFrom && query.dateTo) {
-      where.date = Between(query.dateFrom, query.dateTo) as any;
+    if (requestingUser.role === UserRole.EMPLOYEE) {
+      qb.andWhere(
+        new Brackets((sub) => {
+          sub
+            .where('ic.consumerType = :teacherType', { teacherType: InternalConsumptionConsumerType.TEACHER })
+            .orWhere('ic.consumerType = :staffType AND ic.user_id = :userId', {
+              staffType: InternalConsumptionConsumerType.STAFF,
+              userId: requestingUser.id,
+            });
+        }),
+      );
     }
 
-    return this.repo.find({
-      where,
-      relations: ['product', 'user', 'teacher', 'createdByUser'],
-      order: { createdAt: 'DESC' },
-    });
+    if (query.status) qb.andWhere('ic.status = :status', { status: query.status });
+    if (query.consumerType) qb.andWhere('ic.consumerType = :consumerType', { consumerType: query.consumerType });
+    if (query.teacherId) qb.andWhere('ic.teacher_id = :teacherId', { teacherId: query.teacherId });
+    if (query.userId) qb.andWhere('ic.user_id = :userId', { userId: query.userId });
+    if (query.dateFrom && query.dateTo) {
+      qb.andWhere('ic.date BETWEEN :dateFrom AND :dateTo', { dateFrom: query.dateFrom, dateTo: query.dateTo });
+    }
+
+    return qb.orderBy('ic.createdAt', 'DESC').getMany();
   }
 
   /** Find single consumption or throw. */

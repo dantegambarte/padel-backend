@@ -239,32 +239,49 @@ describe('InternalConsumptionService', () => {
   // ── findAll ──────────────────────────────────────────────────────────────────
 
   describe('findAll', () => {
+    const adminUser = { id: ADMIN_USER_ID, role: 'admin' as any };
+
+    function makeQbMock(results: InternalConsumption[]) {
+      const qb: any = {
+        leftJoinAndSelect: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue(results),
+      };
+      repo.createQueryBuilder.mockReturnValue(qb);
+      return qb;
+    }
+
     it('returns all consumptions when no filters', async () => {
       const records = [makeConsumption()];
-      repo.find.mockResolvedValue(records);
+      const qb = makeQbMock(records);
 
-      const result = await service.findAll({});
+      const result = await service.findAll({}, adminUser);
 
-      expect(repo.find).toHaveBeenCalled();
+      expect(qb.getMany).toHaveBeenCalled();
       expect(result).toEqual(records);
     });
 
     it('applies status filter', async () => {
-      repo.find.mockResolvedValue([]);
+      const qb = makeQbMock([]);
 
-      await service.findAll({ status: InternalConsumptionStatus.PENDING_PAYMENT });
+      await service.findAll({ status: InternalConsumptionStatus.PENDING_PAYMENT }, adminUser);
 
-      const callArgs = repo.find.mock.calls[0][0] as any;
-      expect(callArgs.where.status).toBe(InternalConsumptionStatus.PENDING_PAYMENT);
+      expect(qb.andWhere).toHaveBeenCalledWith(
+        expect.stringContaining('status'),
+        expect.objectContaining({ status: InternalConsumptionStatus.PENDING_PAYMENT }),
+      );
     });
 
     it('applies teacherId filter', async () => {
-      repo.find.mockResolvedValue([]);
+      const qb = makeQbMock([]);
 
-      await service.findAll({ teacherId: 'teacher-uuid-001' });
+      await service.findAll({ teacherId: 'teacher-uuid-001' }, adminUser);
 
-      const callArgs = repo.find.mock.calls[0][0] as any;
-      expect(callArgs.where.teacherId).toBe('teacher-uuid-001');
+      expect(qb.andWhere).toHaveBeenCalledWith(
+        expect.stringContaining('teacher_id'),
+        expect.objectContaining({ teacherId: 'teacher-uuid-001' }),
+      );
     });
   });
 

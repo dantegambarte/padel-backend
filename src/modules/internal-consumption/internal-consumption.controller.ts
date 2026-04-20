@@ -10,6 +10,7 @@ import {
   ParseUUIDPipe,
   HttpCode,
   HttpStatus,
+  ForbiddenException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -30,25 +31,40 @@ export class InternalConsumptionController {
 
   /** POST /internal-consumption — register a new consumption */
   @Post()
+  @Roles(UserRole.ADMIN, UserRole.EMPLOYEE)
   @HttpCode(HttpStatus.CREATED)
-  create(@Body() dto: CreateInternalConsumptionDto, @CurrentUser('id') userId: string) {
+  create(
+    @Body() dto: CreateInternalConsumptionDto,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') userRole: UserRole,
+  ) {
+    if (userRole === UserRole.EMPLOYEE && dto.consumerType === 'staff' && dto.userId !== userId) {
+      throw new ForbiddenException('No podés registrar consumos a nombre de otro empleado.');
+    }
     return this.service.create(dto, userId);
   }
 
   /** GET /internal-consumption — list with optional filters */
   @Get()
-  findAll(@Query() query: QueryInternalConsumptionDto) {
-    return this.service.findAll(query);
+  @Roles(UserRole.ADMIN, UserRole.EMPLOYEE)
+  findAll(
+    @Query() query: QueryInternalConsumptionDto,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') userRole: UserRole,
+  ) {
+    return this.service.findAll(query, { id: userId, role: userRole });
   }
 
   /** GET /internal-consumption/teacher-debt-summary */
   @Get('teacher-debt-summary')
+  @Roles(UserRole.ADMIN, UserRole.EMPLOYEE)
   teacherDebtSummary() {
     return this.service.teacherDebtSummary();
   }
 
   /** GET /internal-consumption/:id */
   @Get(':id')
+  @Roles(UserRole.ADMIN, UserRole.EMPLOYEE)
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.findOne(id);
   }

@@ -11,7 +11,6 @@ import {
   ParseUUIDPipe,
   ParseBoolPipe,
   DefaultValuePipe,
-  ForbiddenException,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
@@ -64,10 +63,8 @@ export class TeachersController {
     @Query('includeInactive', new DefaultValuePipe(false), ParseBoolPipe) includeInactive: boolean,
     @CurrentUser('role') role: UserRole,
   ) {
-    if (includeInactive && role !== UserRole.ADMIN) {
-      throw new ForbiddenException('Solo administradores pueden listar profesores inactivos.');
-    }
-    return this.teachersSvc.findAll(includeInactive);
+    const effectiveIncludeInactive = role === UserRole.ADMIN ? includeInactive : false;
+    return this.teachersSvc.findAll(effectiveIncludeInactive);
   }
 
   /**
