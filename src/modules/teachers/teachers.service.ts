@@ -1,18 +1,28 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, Repository } from 'typeorm';
 
 import { Teacher } from './entities/teacher.entity';
 import { Booking, BookingStatus } from '../bookings/entities/booking.entity';
 import { PricingShift } from '../pricing-shifts/entities/pricing-shift.entity';
+import {
+  InternalConsumption,
+  InternalConsumptionStatus,
+} from '../internal-consumption/entities/internal-consumption.entity';
+import { Transaction, TransactionType } from '../cash-register/entities/transaction.entity';
+import { CashRegisterService } from '../cash-register/cash-register.service';
 import { CreateTeacherDto } from './dto/create-teacher.dto';
 import { UpdateTeacherDto } from './dto/update-teacher.dto';
+import { LiquidateTeacherDto, PaymentMethod } from './dto/liquidate-teacher.dto';
 
 @Injectable()
 export class TeachersService {
   private readonly logger = new Logger(TeachersService.name);
 
   constructor(
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
+
     @InjectRepository(Teacher)
     private readonly teacherRepo: Repository<Teacher>,
 
@@ -21,6 +31,11 @@ export class TeachersService {
 
     @InjectRepository(PricingShift)
     private readonly shiftRepo: Repository<PricingShift>,
+
+    @InjectRepository(InternalConsumption)
+    private readonly consumptionRepo: Repository<InternalConsumption>,
+
+    private readonly cashRegisterService: CashRegisterService,
   ) {}
 
   /**
@@ -103,9 +118,9 @@ export class TeachersService {
 
   /**
    * Genera el reporte de liquidación de un profesor en un rango de fechas.
-   * - Cada turno cuenta siempre como 1 hora (el profesor trabaja 1h por turno).
-   * - El importe por turno se obtiene de teacherPricePerHour de la franja activa
-   *   que corresponde al día y hora del turno (no del priceAmount del booking).
+   * - El importe por turno usa teacherRateSnapshot (tarifa congelada al crear el turno).
+   * - Solo si el snapshot es null (dato histórico previo a la feature) se cae al
+   *   teacherPricePerHour de la franja activa como fallback de seguridad.
    */
   async getReport(id: string, startDate: string, endDate: string) {
     if (!startDate || !endDate) {
@@ -120,6 +135,7 @@ export class TeachersService {
         .leftJoinAndSelect('booking.court', 'court')
         .where('booking.teacherId = :id', { id })
         .andWhere('booking.status = :status', { status: BookingStatus.COMPLETED })
+        .andWhere('booking.isSettled = false')
         .andWhere('booking.date BETWEEN :startDate AND :endDate', { startDate, endDate })
         .orderBy('booking.date', 'ASC')
         .addOrderBy('booking.hour', 'ASC')
@@ -127,18 +143,29 @@ export class TeachersService {
     ]);
 
     const mappedBookings = bookings.map((b) => {
-      const teacherAmount = this.resolveTeacherPrice(b.date, b.hour, shifts);
+      if (b.teacherRateSnapshot === null || b.teacherRateSnapshot === undefined) {
+        this.logger.warn(
+          `[SNAPSHOT] Turno ${b.id} (${b.date} ${b.hour}) sin snapshot — usando tarifa actual de franja como fallback.`,
+        );
+      }
+      const hourlyRate =
+        b.teacherRateSnapshot !== null && b.teacherRateSnapshot !== undefined
+          ? Number(b.teacherRateSnapshot)
+          : this.resolveTeacherPrice(b.date, b.hour, shifts);
+      const hours = (b.durationMinutes ?? 60) / 60;
+      const teacherAmount = +(hourlyRate * hours).toFixed(2);
       return {
         id: b.id,
         date: b.date,
         hour: b.hour,
-        durationMinutes: 60,
+        durationMinutes: b.durationMinutes ?? 60,
         courtName: b.court?.name ?? '—',
+        hourlyRate,
         teacherAmount,
       };
     });
 
-    const totalMinutes = mappedBookings.length * 60;
+    const totalMinutes = mappedBookings.reduce((sum, b) => sum + b.durationMinutes, 0);
     const totalAmount = mappedBookings.reduce((sum, b) => sum + b.teacherAmount, 0);
 
     return {
@@ -152,5 +179,111 @@ export class TeachersService {
         totalAmount,
       },
     };
+  }
+
+  /**
+   * Liquidación unificada: marca los turnos del profesor como `isSettled = true`
+   * y los consumos internos como `PAID`, registrando una única Transaction en caja.
+   */
+  async liquidate(
+    dto: LiquidateTeacherDto,
+    userId: string,
+  ): Promise<{ settled: boolean; totalAmount: number }> {
+    const teacher = await this.findOne(dto.teacherId);
+
+    const bookings = await this.bookingRepo
+      .createQueryBuilder('b')
+      .where('b.id IN (:...ids)', { ids: dto.bookingIds })
+      .andWhere('b.teacherId = :tid', { tid: dto.teacherId })
+      .andWhere('b.status = :status', { status: BookingStatus.COMPLETED })
+      .andWhere('b.isSettled = false')
+      .getMany();
+
+    if (bookings.length !== dto.bookingIds.length) {
+      throw new BadRequestException(
+        'Uno o más turnos no son válidos para liquidar (ya liquidados, de otro profesor o no completados).',
+      );
+    }
+
+    const shifts = await this.shiftRepo.find({ where: { isActive: true } });
+    const bookingTotal = bookings.reduce((sum, b) => {
+      const hourlyRate =
+        b.teacherRateSnapshot !== null && b.teacherRateSnapshot !== undefined
+          ? Number(b.teacherRateSnapshot)
+          : this.resolveTeacherPrice(b.date, b.hour, shifts);
+      return sum + +(hourlyRate * ((b.durationMinutes ?? 60) / 60)).toFixed(2);
+    }, 0);
+
+    // Validar consumos (puede ser array vacío)
+    let consumptionTotal = 0;
+    let consumptions: InternalConsumption[] = [];
+    if (dto.consumptionIds.length > 0) {
+      consumptions = await this.consumptionRepo
+        .createQueryBuilder('c')
+        .where('c.id IN (:...ids)', { ids: dto.consumptionIds })
+        .andWhere('c.teacherId = :tid', { tid: dto.teacherId })
+        .andWhere('c.status = :status', { status: InternalConsumptionStatus.PENDING_PAYMENT })
+        .getMany();
+
+      if (consumptions.length !== dto.consumptionIds.length) {
+        throw new BadRequestException(
+          'Uno o más consumos no son válidos para liquidar (ya pagados o de otro profesor).',
+        );
+      }
+
+      consumptionTotal = consumptions.reduce(
+        (sum, c) => sum + Number(c.unitCostPrice) * c.quantity,
+        0,
+      );
+    }
+
+    const totalAmount = +(bookingTotal + consumptionTotal).toFixed(2);
+
+    const qr = this.dataSource.createQueryRunner();
+    await qr.connect();
+    await qr.startTransaction();
+
+    try {
+      const session = await this.cashRegisterService.getActiveSessionOrFail(qr, userId);
+
+      if (bookings.length > 0) {
+        await qr.manager.update(
+          Booking,
+          bookings.map((b) => b.id),
+          { isSettled: true },
+        );
+      }
+
+      if (consumptions.length > 0) {
+        await qr.manager.update(
+          InternalConsumption,
+          consumptions.map((c) => c.id),
+          { status: InternalConsumptionStatus.PAID },
+        );
+      }
+
+      const tx = qr.manager.create(Transaction, {
+        cashSessionId: session.id,
+        type: TransactionType.SETTLEMENT,
+        referenceId: dto.teacherId,
+        concept: `Liquidación ${teacher.fullName} — ${bookings.length} turno(s)${consumptions.length > 0 ? ` + ${consumptions.length} consumo(s)` : ''}`,
+        amountCash: dto.paymentMethod === PaymentMethod.CASH ? totalAmount : 0,
+        amountTransfer: dto.paymentMethod === PaymentMethod.TRANSFER ? totalAmount : 0,
+        createdByUserId: userId,
+      });
+      await qr.manager.save(Transaction, tx);
+
+      await qr.commitTransaction();
+      this.logger.log(
+        `Liquidación ${teacher.fullName}: ${bookings.length} turno(s) + ${consumptions.length} consumo(s) = $${totalAmount} (${dto.paymentMethod}).`,
+      );
+    } catch (error) {
+      await qr.rollbackTransaction();
+      throw error;
+    } finally {
+      await qr.release();
+    }
+
+    return { settled: true, totalAmount };
   }
 }
