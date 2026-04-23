@@ -341,11 +341,12 @@ export class ReportsService {
   ): Promise<{ date: string; cash: number; transfer: number; total: number }[]> {
     const rows = await this.dataSource.query<{ date: string; cash: string; transfer: string }[]>(
       `SELECT
-         (created_at AT TIME ZONE $1)::date::text                  AS date,
-         COALESCE(SUM(amount_cash),                           0)   AS cash,
-         COALESCE(SUM(amount_transfer),                       0)   AS transfer
-       FROM transactions
-       WHERE (created_at AT TIME ZONE $1)::date
+         cs.date::text                                              AS date,
+         COALESCE(SUM(t.amount_cash),       0)                     AS cash,
+         COALESCE(SUM(t.amount_transfer),   0)                     AS transfer
+       FROM transactions t
+       JOIN cash_sessions cs ON cs.id = t.cash_session_id
+       WHERE cs.date
              BETWEEN (CURRENT_DATE AT TIME ZONE $1)::date - ($2 - 1)
              AND     (CURRENT_DATE AT TIME ZONE $1)::date
        GROUP BY 1

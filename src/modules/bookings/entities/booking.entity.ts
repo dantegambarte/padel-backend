@@ -194,4 +194,27 @@ export class Booking {
    */
   @Column({ name: 'player_count', type: 'int', nullable: true, default: null })
   playerCount: number | null;
+
+  /**
+   * Tarifa por hora del profesor congelada al momento de crear el turno.
+   * Solo presente cuando priceType = 'professor'. Garantiza que cambios
+   * futuros en PricingShift no alteren liquidaciones pasadas.
+   */
+  @Column({
+    name: 'teacher_rate_snapshot',
+    type: 'numeric',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+    default: null,
+  })
+  teacherRateSnapshot: number | null;
+
+  /**
+   * Indica si este turno de profesor ya fue incluido en una liquidación pagada.
+   * false (default) → aparece en el reporte de deuda.
+   * true → ya liquidado, excluido de futuros reportes.
+   */
+  @Column({ name: 'is_settled', type: 'boolean', default: false })
+  isSettled: boolean;
 }

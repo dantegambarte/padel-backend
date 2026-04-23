@@ -27,6 +27,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { TeachersService } from './teachers.service';
 import { CreateTeacherDto } from './dto/create-teacher.dto';
 import { UpdateTeacherDto } from './dto/update-teacher.dto';
+import { LiquidateTeacherDto } from './dto/liquidate-teacher.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -94,6 +95,19 @@ export class TeachersController {
   @ApiResponse({ status: 404, description: 'No encontrado.' })
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.teachersSvc.findOne(id);
+  }
+
+  /**
+   * POST /teachers/liquidate
+   * Liquida turnos + consumos de un profesor en una sola transacción de caja.
+   * Requiere caja abierta.
+   */
+  @Post('liquidate')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Liquidar deuda unificada de un profesor (admin)' })
+  liquidate(@Body() dto: LiquidateTeacherDto, @CurrentUser('id') userId: string) {
+    return this.teachersSvc.liquidate(dto, userId);
   }
 
   @Post()
