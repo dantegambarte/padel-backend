@@ -201,7 +201,11 @@ export class BookingsService {
 
       const priceType = dto.priceType ?? PriceType.STANDARD;
       const duration = dto.durationMinutes ?? 60;
-      const { amount: priceAmount, shiftName: appliedShiftName } = await this.calculateDynamicPrice(
+      const {
+        amount: priceAmount,
+        shiftName: appliedShiftName,
+        teacherRate,
+      } = await this.calculateDynamicPrice(
         dto.date,
         dto.hour,
         priceType === PriceType.PROFESSOR,
@@ -210,6 +214,10 @@ export class BookingsService {
       );
 
       const bookingItems = await this.processItems(dto.items ?? [], queryRunner);
+
+      if (priceType === PriceType.PROFESSOR && !dto.teacherId) {
+        throw new BadRequestException('Se requiere teacherId para turnos de tipo Profesor.');
+      }
 
       const booking = queryRunner.manager.create(Booking, {
         courtId: dto.courtId,
@@ -222,7 +230,15 @@ export class BookingsService {
         appliedShiftName,
         durationMinutes: dto.durationMinutes ?? 60,
         createdByUserId: user.id,
+        teacherId: priceType === PriceType.PROFESSOR ? (dto.teacherId ?? null) : null,
+        teacherRateSnapshot: priceType === PriceType.PROFESSOR ? (teacherRate ?? null) : null,
       });
+
+      if (priceType === PriceType.PROFESSOR) {
+        this.logger.log(
+          `[SNAPSHOT] Guardando snapshot: ${booking.teacherRateSnapshot} (teacherId=${booking.teacherId})`,
+        );
+      }
 
       const savedBooking = await queryRunner.manager.save(Booking, booking);
 
@@ -323,6 +339,40 @@ export class BookingsService {
         return this.findOne(id);
       }
 
+      if (
+        dto.status === BookingStatus.PLAYING &&
+        booking.priceType === PriceType.PROFESSOR &&
+        booking.status === BookingStatus.BOOKED
+      ) {
+        await this.commitStock(booking.id, queryRunner);
+
+        const updateFields: Partial<Booking> = { status: BookingStatus.COMPLETED };
+        if (booking.teacherRateSnapshot === null || booking.teacherRateSnapshot === undefined) {
+          const { teacherRate: currentRate } = await this.calculateDynamicPrice(
+            booking.date,
+            booking.hour,
+            true,
+            booking.durationMinutes,
+            queryRunner,
+          );
+          if (currentRate !== null) {
+            updateFields.teacherRateSnapshot = currentRate;
+            this.logger.warn(
+              `[SNAPSHOT] Turno ${id} tenía snapshot null. Rescatando al completar: ${currentRate}`,
+            );
+          } else {
+            this.logger.error(
+              `[SNAPSHOT] Turno ${id}: snapshot null y no se pudo resolver tarifa del profesor.`,
+            );
+          }
+        }
+
+        await queryRunner.manager.update(Booking, { id: booking.id }, updateFields);
+        await queryRunner.commitTransaction();
+        this.logger.log(`Turno Profesor ${id} auto-completado sin caja (${user.username}).`);
+        return this.findOne(id);
+      }
+
       if (dto.status) {
         this.validateStatusTransition(booking.status, dto.status, user);
       }
@@ -376,20 +426,25 @@ export class BookingsService {
           );
         }
 
-        const { amount: newPriceAmount, shiftName: newShiftName } =
-          await this.calculateDynamicPrice(
-            targetDate,
-            targetHour,
-            booking.priceType === PriceType.PROFESSOR,
-            booking.durationMinutes,
-            queryRunner,
-          );
+        const {
+          amount: newPriceAmount,
+          shiftName: newShiftName,
+          teacherRate: newTeacherRate,
+        } = await this.calculateDynamicPrice(
+          targetDate,
+          targetHour,
+          booking.priceType === PriceType.PROFESSOR,
+          booking.durationMinutes,
+          queryRunner,
+        );
         rescheduleFields = {
           courtId: targetCourtId,
           date: targetDate,
           hour: targetHour,
           priceAmount: newPriceAmount,
           appliedShiftName: newShiftName,
+          teacherRateSnapshot:
+            booking.priceType === PriceType.PROFESSOR ? (newTeacherRate ?? null) : null,
         } as any;
       }
 
@@ -876,7 +931,7 @@ export class BookingsService {
     isTeacherIncluded: boolean,
     duration: number,
     queryRunner: any,
-  ): Promise<{ amount: number; shiftName: string }> {
+  ): Promise<{ amount: number; shiftName: string; teacherRate: number | null }> {
     const [year, month, day] = date.split('-').map(Number);
     const dayOfWeek = new Date(year, month - 1, day).getDay();
 
@@ -915,15 +970,16 @@ export class BookingsService {
           base = Number(matching.price60min);
           break;
       }
-      const extra = isTeacherIncluded ? Number(matching.teacherPricePerHour) * (duration / 60) : 0;
+      const teacherRate = isTeacherIncluded ? Number(matching.teacherPricePerHour) : null;
+      const amount = teacherRate !== null ? teacherRate * (duration / 60) : base;
       this.logger.log(
-        `Precio dinámico: franja "${matching.name}" → $${base}${isTeacherIncluded ? ` + $${extra} (profesor)` : ''}`,
+        `Precio dinámico: franja "${matching.name}" → $${amount}${isTeacherIncluded ? ` (profesor, tarifa/hora=$${teacherRate})` : ''}`,
       );
-      return { amount: base + extra, shiftName: matching.name };
+      return { amount, shiftName: matching.name, teacherRate };
     }
 
     this.logger.warn(`Sin franja horaria para ${date} ${hour}hs (día ${dayOfWeek}). Precio = 0.`);
-    return { amount: 0, shiftName: 'Estándar' };
+    return { amount: 0, shiftName: 'Estándar', teacherRate: null };
   }
 
   /**

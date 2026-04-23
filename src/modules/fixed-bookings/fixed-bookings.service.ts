@@ -260,8 +260,17 @@ export class FixedBookingsService {
             WEEKS_TO_GENERATE,
           );
           const jsDayOfWeek = saved.dayOfWeek === 7 ? 0 : saved.dayOfWeek;
-          const { amount: priceAmount, shiftName: appliedShiftName } =
-            await this.calculateDynamicPrice(jsDayOfWeek, saved.hour, saved.durationMinutes);
+          const isSavedProf = !!saved.teacherId;
+          const {
+            amount: priceAmount,
+            shiftName: appliedShiftName,
+            teacherRate,
+          } = await this.calculateDynamicPrice(
+            jsDayOfWeek,
+            saved.hour,
+            saved.durationMinutes,
+            isSavedProf,
+          );
 
           let regenerated = 0;
           for (const date of dates) {
@@ -281,15 +290,22 @@ export class FixedBookingsService {
               hour: saved.hour,
               clientName: saved.clientName,
               durationMinutes: saved.durationMinutes,
-              priceType: saved.teacherId ? PriceType.PROFESSOR : PriceType.STANDARD,
+              priceType: isSavedProf ? PriceType.PROFESSOR : PriceType.STANDARD,
               priceAmount,
               appliedShiftName,
               status: BookingStatus.BOOKED,
               createdByUserId: user.id,
               fixedBookingId: saved.id,
               teacherId: saved.teacherId ?? null,
+              teacherRateSnapshot: isSavedProf ? (teacherRate ?? null) : null,
               expectedDepositAmount: saved.recurringDepositAmount ?? null,
             });
+
+            if (isSavedProf) {
+              this.logger.log(
+                `[SNAPSHOT] Cascada guardando snapshot: ${booking.teacherRateSnapshot} (teacherId=${booking.teacherId}, fecha=${date})`,
+              );
+            }
 
             try {
               await queryRunner.manager.save(Booking, booking);
@@ -446,11 +462,12 @@ export class FixedBookingsService {
     const dates = this.getNextOccurrences(fixed.startDate, fixed.dayOfWeek, WEEKS_TO_GENERATE);
 
     const jsDayOfWeek = fixed.dayOfWeek === 7 ? 0 : fixed.dayOfWeek;
-    const { amount: priceAmount, shiftName: appliedShiftName } = await this.calculateDynamicPrice(
-      jsDayOfWeek,
-      fixed.hour,
-      fixed.durationMinutes,
-    );
+    const isProf = !!fixed.teacherId;
+    const {
+      amount: priceAmount,
+      shiftName: appliedShiftName,
+      teacherRate,
+    } = await this.calculateDynamicPrice(jsDayOfWeek, fixed.hour, fixed.durationMinutes, isProf);
 
     let created = 0;
     for (const date of dates) {
@@ -471,15 +488,22 @@ export class FixedBookingsService {
         hour: fixed.hour,
         clientName: fixed.clientName,
         durationMinutes: fixed.durationMinutes,
-        priceType: fixed.teacherId ? PriceType.PROFESSOR : PriceType.STANDARD,
+        priceType: isProf ? PriceType.PROFESSOR : PriceType.STANDARD,
         priceAmount,
         appliedShiftName,
         status: BookingStatus.BOOKED,
         createdByUserId: user.id,
         fixedBookingId: fixed.id,
         teacherId: fixed.teacherId ?? null,
+        teacherRateSnapshot: isProf ? (teacherRate ?? null) : null,
         expectedDepositAmount: fixed.recurringDepositAmount ?? null,
       });
+
+      if (isProf) {
+        this.logger.log(
+          `[SNAPSHOT] Guardando snapshot: ${booking.teacherRateSnapshot} (teacherId=${booking.teacherId}, fecha=${date})`,
+        );
+      }
 
       try {
         await this.bookingRepo.save(booking);
@@ -542,7 +566,8 @@ export class FixedBookingsService {
     dayOfWeek: number,
     hour: string,
     duration: number,
-  ): Promise<{ amount: number; shiftName: string }> {
+    isTeacherIncluded = false,
+  ): Promise<{ amount: number; shiftName: string; teacherRate: number | null }> {
     const [h, m] = hour.split(':').map(Number);
     const bookingMin = h * 60 + m;
 
@@ -576,13 +601,17 @@ export class FixedBookingsService {
           base = Number(matching.price60min);
           break;
       }
+      const teacherRate =
+        matching.teacherPricePerHour != null ? Number(matching.teacherPricePerHour) : null;
+      const amount =
+        isTeacherIncluded && teacherRate !== null ? teacherRate * (duration / 60) : base;
       this.logger.log(
-        `Precio turno fijo: franja "${matching.name}" → $${base} (${duration}min, día=${dayOfWeek}, hora=${hour})`,
+        `Precio turno fijo: franja "${matching.name}" → $${amount}${isTeacherIncluded ? ` (profesor, tarifa/hora=$${teacherRate})` : ''} (${duration}min, día=${dayOfWeek}, hora=${hour})`,
       );
-      return { amount: base, shiftName: matching.name };
+      return { amount, shiftName: matching.name, teacherRate };
     }
 
     this.logger.warn(`Sin franja horaria para día=${dayOfWeek} hora=${hour}. Precio = 0.`);
-    return { amount: 0, shiftName: 'Estándar' };
+    return { amount: 0, shiftName: 'Estándar', teacherRate: null };
   }
 }
