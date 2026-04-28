@@ -20,7 +20,7 @@ import { Court } from '../courts/entities/court.entity';
 import { PricingShift } from '../pricing-shifts/entities/pricing-shift.entity';
 import { User, UserRole } from '../users/entities/user.entity';
 import { CashRegisterService } from '../cash-register/cash-register.service';
-import { TransactionType } from '../cash-register/entities/transaction.entity';
+import { Transaction, TransactionType } from '../cash-register/entities/transaction.entity';
 import { CashSession, CashSessionStatus } from '../cash-register/entities/cash-session.entity';
 
 import { CreateBookingDto } from './dto/create-booking.dto';
@@ -158,6 +158,27 @@ export class BookingsService {
     }
 
     return booking;
+  }
+
+  /**
+   * Obtiene el resumen de un ticket para un turno específico.
+   * @param id
+   * @returns
+   */
+  async getTicketSummary(id: string): Promise<{
+    booking: Booking;
+    transactions: Pick<
+      Transaction,
+      'id' | 'concept' | 'amountCash' | 'amountTransfer' | 'createdAt'
+    >[];
+  }> {
+    const booking = await this.findOne(id);
+    const transactions = await this.dataSource.getRepository(Transaction).find({
+      where: { referenceId: id },
+      select: ['id', 'concept', 'amountCash', 'amountTransfer', 'createdAt'],
+      order: { createdAt: 'ASC' },
+    });
+    return { booking, transactions };
   }
 
   /**
