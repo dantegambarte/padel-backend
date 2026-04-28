@@ -234,6 +234,7 @@ export class ReportsService {
         total: string;
         created_by: string;
         reference_id: string | null;
+        raw_created_at: string;
       }[]
     >(
       `SELECT
@@ -245,7 +246,8 @@ export class ReportsService {
          SUM(t.amount_transfer)                                                AS transfer,
          SUM(t.amount_cash + t.amount_transfer)                                AS total,
          MAX(u.full_name)                                                      AS created_by,
-         COALESCE(t.reference_id::varchar, t.id::varchar)                     AS reference_id
+         COALESCE(t.reference_id::varchar, t.id::varchar)                     AS reference_id,
+         MAX(t.created_at)                                                     AS raw_created_at
        FROM transactions t
        JOIN cash_sessions cs ON cs.id = t.cash_session_id
        JOIN users u ON u.id = t.created_by_user_id
@@ -263,13 +265,14 @@ export class ReportsService {
          0                                                               AS transfer,
          e.amount                                                        AS total,
          NULL                                                            AS created_by,
-         NULL                                                            AS reference_id
+         NULL                                                            AS reference_id,
+         e.created_at                                                    AS raw_created_at
        FROM expenses e
        JOIN cash_sessions cs ON cs.id = e.cash_session_id
        WHERE cs.date BETWEEN $2::date AND $3::date
          AND e.deleted_at IS NULL
 
-       ORDER BY date DESC, time DESC`,
+       ORDER BY raw_created_at DESC`,
       [this.TZ, from, to],
     );
 
