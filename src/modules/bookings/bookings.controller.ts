@@ -11,7 +11,9 @@ import {
   ParseUUIDPipe,
   HttpCode,
   HttpStatus,
+  Res,
 } from '@nestjs/common';
+import { Response } from 'express';
 import {
   ApiTags,
   ApiBearerAuth,
@@ -130,6 +132,24 @@ export class BookingsController {
   }
 
   /**
+   * GET /api/v1/bookings/:id/ticket-summary
+   * Datos consolidados para el modal de ticket: turno + items + pago + transacciones.
+   * Turnos completados reciben Cache-Control: public, max-age=86400, immutable.
+   */
+  @Get(':id/ticket-summary')
+  @ApiOperation({ summary: 'Resumen consolidado de ticket para un turno' })
+  @ApiParam({ name: 'id', type: 'string', format: 'uuid' })
+  async getTicketSummary(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const summary = await this.bookingsService.getTicketSummary(id);
+    const isCompleted = summary.booking.status === 'completed';
+    res.setHeader('Cache-Control', isCompleted ? 'public, max-age=86400, immutable' : 'no-cache');
+    return summary;
+  }
+
+  /**
    * POST /api/v1/bookings
    *
    * Crea un turno nuevo con lógica transaccional completa:
@@ -223,10 +243,7 @@ export class BookingsController {
   @ApiResponse({ status: 200, description: 'Seña confirmada. Retorna el turno actualizado.' })
   @ApiResponse({ status: 400, description: 'Sin seña esperada o ya confirmada.' })
   @ApiResponse({ status: 404, description: 'Turno no encontrado.' })
-  confirmExpectedDeposit(
-    @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser() user: User,
-  ) {
+  confirmExpectedDeposit(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: User) {
     return this.bookingsService.confirmExpectedDeposit(id, user);
   }
 

@@ -237,19 +237,20 @@ export class ReportsService {
       }[]
     >(
       `SELECT
-         cs.date::text                                                   AS date,
-         TO_CHAR(t.created_at AT TIME ZONE $1, 'HH24:MI')               AS time,
-         t.type::text                                                    AS type,
-         t.concept,
-         t.amount_cash                                                   AS cash,
-         t.amount_transfer                                               AS transfer,
-         (t.amount_cash + t.amount_transfer)                            AS total,
-         u.full_name                                                     AS created_by,
-         t.reference_id                                                  AS reference_id
+         cs.date::text                                                         AS date,
+         TO_CHAR(MAX(t.created_at) AT TIME ZONE $1, 'HH24:MI')                AS time,
+         t.type::text                                                          AS type,
+         MAX(t.concept)                                                        AS concept,
+         SUM(t.amount_cash)                                                    AS cash,
+         SUM(t.amount_transfer)                                                AS transfer,
+         SUM(t.amount_cash + t.amount_transfer)                                AS total,
+         MAX(u.full_name)                                                      AS created_by,
+         COALESCE(t.reference_id::varchar, t.id::varchar)                     AS reference_id
        FROM transactions t
        JOIN cash_sessions cs ON cs.id = t.cash_session_id
        JOIN users u ON u.id = t.created_by_user_id
        WHERE cs.date BETWEEN $2::date AND $3::date
+       GROUP BY cs.date, t.type, COALESCE(t.reference_id::varchar, t.id::varchar)
 
        UNION ALL
 
@@ -268,7 +269,7 @@ export class ReportsService {
        WHERE cs.date BETWEEN $2::date AND $3::date
          AND e.deleted_at IS NULL
 
-       ORDER BY date ASC, time ASC`,
+       ORDER BY date DESC, time DESC`,
       [this.TZ, from, to],
     );
 
@@ -528,5 +529,4 @@ export class ReportsService {
       netProfit: totalRevenue - totalExpenses,
     };
   }
-
 }

@@ -10,6 +10,7 @@ import {
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, IsNull, Repository } from 'typeorm';
 
+import { SystemConfig } from '../system-config/entities/system-config.entity';
 import { Booking, BookingStatus, PriceType } from './entities/booking.entity';
 import { BookingItem } from './entities/booking-item.entity';
 import { BookingPayment } from './entities/booking-payment.entity';
@@ -19,7 +20,7 @@ import { Court } from '../courts/entities/court.entity';
 import { PricingShift } from '../pricing-shifts/entities/pricing-shift.entity';
 import { User, UserRole } from '../users/entities/user.entity';
 import { CashRegisterService } from '../cash-register/cash-register.service';
-import { TransactionType } from '../cash-register/entities/transaction.entity';
+import { Transaction, TransactionType } from '../cash-register/entities/transaction.entity';
 import { CashSession, CashSessionStatus } from '../cash-register/entities/cash-session.entity';
 
 import { CreateBookingDto } from './dto/create-booking.dto';
@@ -37,8 +38,44 @@ export class BookingsService {
     @InjectRepository(Booking)
     private readonly bookingRepo: Repository<Booking>,
 
+    @InjectRepository(SystemConfig)
+    private readonly systemConfigRepo: Repository<SystemConfig>,
+
     private readonly cashRegisterService: CashRegisterService,
   ) {}
+
+  /**
+   * Validates that startMin + durationMinutes does not exceed the configured closing time.
+   * Handles midnight crossover: if closingTime < openingTime numerically, closing belongs to
+   * the next calendar day (add 1440 min to its absolute value).
+   */
+  private async validateClosingTime(startMin: number, durationMinutes: number): Promise<void> {
+    const [apertura, cierre] = await Promise.all([
+      this.systemConfigRepo.findOne({ where: { key: 'hora_apertura' } }),
+      this.systemConfigRepo.findOne({ where: { key: 'hora_cierre' } }),
+    ]);
+
+    const openingValue = apertura?.value ?? '09:00';
+    const closingValue = cierre?.value ?? '23:00';
+
+    const [oh, om] = openingValue.split(':').map(Number);
+    const [ch, cm] = closingValue.split(':').map(Number);
+    const openMin = oh * 60 + om;
+    let closeMin = ch * 60 + cm;
+
+    if (closeMin <= openMin) closeMin += 1440;
+
+    let normalizedStart = startMin;
+    if (normalizedStart < openMin) normalizedStart += 1440;
+
+    const endMin = normalizedStart + durationMinutes;
+
+    if (endMin > closeMin) {
+      throw new BadRequestException(
+        `El turno excede el horario de cierre del establecimiento (${closingValue}).`,
+      );
+    }
+  }
 
   /**
    * Retorna los turnos con seña recurrente pendiente de confirmación.
@@ -124,6 +161,27 @@ export class BookingsService {
   }
 
   /**
+   * Obtiene el resumen de un ticket para un turno específico.
+   * @param id
+   * @returns
+   */
+  async getTicketSummary(id: string): Promise<{
+    booking: Booking;
+    transactions: Pick<
+      Transaction,
+      'id' | 'concept' | 'amountCash' | 'amountTransfer' | 'createdAt'
+    >[];
+  }> {
+    const booking = await this.findOne(id);
+    const transactions = await this.dataSource.getRepository(Transaction).find({
+      where: { referenceId: id },
+      select: ['id', 'concept', 'amountCash', 'amountTransfer', 'createdAt'],
+      order: { createdAt: 'ASC' },
+    });
+    return { booking, transactions };
+  }
+
+  /**
    * Crea un turno en una transacción atómica.
    * Usa advisory lock de PostgreSQL + constraint UNIQUE para prevenir overbooking.
    */
@@ -188,6 +246,8 @@ export class BookingsService {
             `${overlappingBooking.durationMinutes} min).`,
         );
       }
+
+      await this.validateClosingTime(newStartMin, dto.durationMinutes ?? 60);
 
       await queryRunner.manager
         .createQueryBuilder()
@@ -425,6 +485,8 @@ export class BookingsService {
             `El slot ${court.name} - ${targetHour}hs del ${targetDate} se solapa con el turno de ${conflict.clientName}.`,
           );
         }
+
+        await this.validateClosingTime(newStartMin, booking.durationMinutes);
 
         const {
           amount: newPriceAmount,
