@@ -67,7 +67,7 @@ export class InternalConsumptionService {
         teacherId: dto.teacherId ?? null,
         status,
         notes: dto.notes ?? null,
-        unitCostPrice: product.costPrice,
+        unitCostPrice: product.salePrice,
         date: dto.date,
         createdByUserId,
       });
