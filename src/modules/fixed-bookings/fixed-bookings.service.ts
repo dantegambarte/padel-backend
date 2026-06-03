@@ -159,7 +159,7 @@ export class FixedBookingsService {
 
     const saved = await this.fixedRepo.save(fixed);
 
-    const generated = await this.generateBookings(saved, court, user);
+    const generated = await this.generateBookings(saved, court, user.id);
     this.logger.log(`Turno fijo ${saved.id} creado. Turnos generados: ${generated}.`);
 
     return this.findOne(saved.id);
@@ -324,7 +324,7 @@ export class FixedBookingsService {
       } else if (wasInactive && saved.isActive) {
         const court = await queryRunner.manager.findOne(Court, { where: { id: saved.courtId } });
         if (court) {
-          const generated = await this.generateBookings(saved, court, user);
+          const generated = await this.generateBookings(saved, court, user.id);
           this.logger.log(`Turno fijo ${id} reactivado. Turnos generados: ${generated}.`);
         }
       }
@@ -448,8 +448,34 @@ export class FixedBookingsService {
     if (!court) {
       throw new NotFoundException(`Cancha del turno fijo no encontrada.`);
     }
-    const generated = await this.generateBookings(fixed, court, user);
+    const generated = await this.generateBookings(fixed, court, user.id);
     return { generated };
+  }
+
+  /**
+   * Extiende automáticamente los bookings de todos los turnos fijos activos.
+   * Llamado por el cron job — no requiere usuario (createdByUserId queda null).
+   */
+  async extendAllActive(): Promise<void> {
+    const activos = await this.fixedRepo.find({ where: { isActive: true } });
+    this.logger.log(`[CRON] Extendiendo ${activos.length} turno(s) fijo(s) activo(s).`);
+
+    let totalGenerados = 0;
+    for (const fixed of activos) {
+      const court = await this.courtRepo.findOne({ where: { id: fixed.courtId } });
+      if (!court) {
+        this.logger.warn(`[CRON] Cancha ${fixed.courtId} no encontrada para turno fijo ${fixed.id} — omitido.`);
+        continue;
+      }
+      try {
+        const generados = await this.generateBookings(fixed, court, null);
+        totalGenerados += generados;
+      } catch (err: any) {
+        this.logger.error(`[CRON] Error extendiendo turno fijo ${fixed.id}: ${err.message}`, err.stack);
+      }
+    }
+
+    this.logger.log(`[CRON] Finalizado. Total bookings generados: ${totalGenerados}.`);
   }
 
   /**
@@ -458,7 +484,7 @@ export class FixedBookingsService {
    * Salta las fechas que ya tienen un booking activo en el mismo slot.
    * Retorna la cantidad de bookings insertados.
    */
-  private async generateBookings(fixed: FixedBooking, court: Court, user: User): Promise<number> {
+  private async generateBookings(fixed: FixedBooking, court: Court, userId: string | null): Promise<number> {
     const dates = this.getNextOccurrences(fixed.startDate, fixed.dayOfWeek, WEEKS_TO_GENERATE);
 
     const jsDayOfWeek = fixed.dayOfWeek === 7 ? 0 : fixed.dayOfWeek;
@@ -492,7 +518,7 @@ export class FixedBookingsService {
         priceAmount,
         appliedShiftName,
         status: BookingStatus.BOOKED,
-        createdByUserId: user.id,
+        createdByUserId: userId ?? undefined,
         fixedBookingId: fixed.id,
         teacherId: fixed.teacherId ?? null,
         teacherRateSnapshot: isProf ? (teacherRate ?? null) : null,
