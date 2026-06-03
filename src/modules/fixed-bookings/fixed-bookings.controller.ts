@@ -110,4 +110,15 @@ export class FixedBookingsController {
   generateNext(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: User) {
     return this.fixedBookingsService.generateNext(id, user);
   }
+
+  @Post('sync-prices')
+  @ApiOperation({
+    summary: 'Sincronizar precios de turnos fijos futuros (solo admin)',
+    description:
+      'Recalcula y actualiza el precio de todos los Bookings futuros vinculados a turnos fijos, usando las franjas horarias vigentes.',
+  })
+  @ApiResponse({ status: 200, description: 'Cantidad de bookings actualizados.' })
+  syncPrices() {
+    return this.fixedBookingsService.syncPrices();
+  }
 }

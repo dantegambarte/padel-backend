@@ -10,12 +10,14 @@ export class FixedBookingsCronService {
   constructor(private readonly fixedBookingsService: FixedBookingsService) {}
 
   /**
-   * Extiende automáticamente los turnos fijos activos cada domingo a las 3:00 AM.
-   * Esto asegura que los turnos fijos se mantengan actualizados sin intervención manual.
+   * Cron job que se ejecuta todos los días a las 3 AM para extender los turnos fijos activos y sincronizar los precios.
+   * Esto asegura que los turnos fijos se mantengan actualizados y que los precios reflejen cualquier cambio reciente.
    */
-  @Cron('0 3 * * 0')
-  async extendFixedBookings(): Promise<void> {
-    this.logger.log('[CRON] Iniciando extensión automática de turnos fijos.');
+  @Cron(CronExpression.EVERY_DAY_AT_3AM)
+  async weeklyMaintenance(): Promise<void> {
+    this.logger.log('[CRON] Iniciando mantenimiento semanal de turnos fijos.');
     await this.fixedBookingsService.extendAllActive();
+    await this.fixedBookingsService.syncPrices();
+    this.logger.log('[CRON] Mantenimiento semanal finalizado.');
   }
 }
