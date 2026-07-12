@@ -76,8 +76,8 @@ export class TeachersController {
    */
   @Get(':id/report')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Reporte de liquidación de un profesor (admin)' })
+  @Roles(UserRole.ADMIN, UserRole.EMPLOYEE)
+  @ApiOperation({ summary: 'Reporte de liquidación de un profesor (admin, empleado)' })
   @ApiParam({ name: 'id', type: 'string', format: 'uuid' })
   @ApiQuery({ name: 'startDate', required: true, type: String, example: '2025-01-01' })
   @ApiQuery({ name: 'endDate', required: true, type: String, example: '2025-01-31' })
@@ -104,8 +104,8 @@ export class TeachersController {
    */
   @Post('liquidate')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Liquidar deuda unificada de un profesor (admin)' })
+  @Roles(UserRole.ADMIN, UserRole.EMPLOYEE)
+  @ApiOperation({ summary: 'Liquidar deuda unificada de un profesor (admin, empleado)' })
   liquidate(@Body() dto: LiquidateTeacherDto, @CurrentUser('id') userId: string) {
     return this.teachersSvc.liquidate(dto, userId);
   }

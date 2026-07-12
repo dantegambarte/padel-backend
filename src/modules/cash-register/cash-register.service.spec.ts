@@ -5,7 +5,9 @@ import { DataSource } from 'typeorm';
 import { CashRegisterService } from './cash-register.service';
 import { CashSession, CashSessionStatus } from './entities/cash-session.entity';
 import { Transaction } from './entities/transaction.entity';
+import { DailyClosureRecord } from './entities/daily-closure.entity';
 import { User, UserRole } from '../users/entities/user.entity';
+import { SystemConfigService } from '../system-config/system-config.service';
 
 const mockUser = (): User =>
   ({ id: 'admin-uuid', username: 'admin', role: UserRole.ADMIN }) as User;
@@ -38,9 +40,35 @@ describe('CashRegisterService', () => {
     find: jest.fn(),
   };
 
+  const dailyClosureRepo = {
+    findOne: jest.fn(),
+    create: jest.fn(),
+    save: jest.fn(),
+  };
+
+  const systemConfigService = {
+    getDefaultCashFund: jest.fn().mockResolvedValue(5000),
+  };
+
   const dataSource = {
     query: jest.fn(),
+    createQueryRunner: jest.fn(),
   };
+
+  const makeMockQr = () => ({
+    connect: jest.fn().mockResolvedValue(undefined),
+    startTransaction: jest.fn().mockResolvedValue(undefined),
+    commitTransaction: jest.fn().mockResolvedValue(undefined),
+    rollbackTransaction: jest.fn().mockResolvedValue(undefined),
+    release: jest.fn().mockResolvedValue(undefined),
+    query: jest.fn(),
+    manager: {
+      findOne: jest.fn(),
+      create: jest.fn(),
+      save: jest.fn(),
+      delete: jest.fn(),
+    },
+  });
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -48,7 +76,9 @@ describe('CashRegisterService', () => {
         CashRegisterService,
         { provide: getRepositoryToken(CashSession), useValue: sessionRepo },
         { provide: getRepositoryToken(Transaction), useValue: transactionRepo },
+        { provide: getRepositoryToken(DailyClosureRecord), useValue: dailyClosureRepo },
         { provide: DataSource, useValue: dataSource },
+        { provide: SystemConfigService, useValue: systemConfigService },
       ],
     }).compile();
 
@@ -56,9 +86,16 @@ describe('CashRegisterService', () => {
     jest.clearAllMocks();
   });
 
+  afterEach(() => {
+    jest.restoreAllMocks();
+    jest.useRealTimers();
+  });
+
   describe('getCurrentSession', () => {
     it('retorna session:null e isOpen:false si no hay ninguna sesión abierta', async () => {
       sessionRepo.findOne.mockResolvedValue(null);
+      dailyClosureRepo.findOne.mockResolvedValue(null);
+      dataSource.query.mockResolvedValueOnce([{ count: '0' }]);
       const result = await service.getCurrentSession();
       expect(result.session).toBeNull();
       expect(result.cashExpected).toBe(0);
@@ -140,6 +177,8 @@ describe('CashRegisterService', () => {
 
     it('turno trasnoche: devuelve session:null cuando no hay sesiones en la ventana activa', async () => {
       sessionRepo.findOne.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+      dailyClosureRepo.findOne.mockResolvedValue(null);
+      dataSource.query.mockResolvedValueOnce([{ count: '0' }]);
 
       const result = await service.getCurrentSession();
 
@@ -150,63 +189,183 @@ describe('CashRegisterService', () => {
   });
 
   describe('openSession', () => {
+    const setupHappyPathQr = (sessionOverrides: Partial<CashSession> = {}) => {
+      const newSession = mockSession(sessionOverrides);
+      const qr = makeMockQr();
+      qr.query
+        .mockResolvedValueOnce([]) // advisory lock
+        .mockResolvedValueOnce([]) // orphaned days query
+        .mockResolvedValueOnce([0]); // sweep UPDATE result
+      qr.manager.findOne
+        .mockResolvedValueOnce(null) // no CashSession OPEN
+        .mockResolvedValueOnce(null); // no DailyClosureRecord
+      qr.manager.create.mockReturnValue(newSession);
+      qr.manager.save.mockResolvedValue(newSession);
+      dataSource.createQueryRunner.mockReturnValue(qr);
+      return { qr, newSession };
+    };
+
     it('abre una nueva sesión correctamente cuando no hay ninguna abierta', async () => {
-      sessionRepo.findOne.mockResolvedValue(null);
-      const newSession = mockSession();
-      sessionRepo.create.mockReturnValue(newSession);
-      sessionRepo.save.mockResolvedValue(newSession);
+      const { qr, newSession } = setupHappyPathQr();
 
       const result = await service.openSession({ initialBalance: 5000 }, mockUser());
 
-      expect(sessionRepo.save).toHaveBeenCalled();
+      expect(qr.manager.save).toHaveBeenCalledWith(CashSession, newSession);
+      expect(qr.commitTransaction).toHaveBeenCalled();
       expect(result.status).toBe(CashSessionStatus.OPEN);
     });
 
-    it('guarda el fondo inicial en la sesión', async () => {
-      sessionRepo.findOne.mockResolvedValue(null);
-      const newSession = mockSession({ initialBalance: 2500 });
-      sessionRepo.create.mockReturnValue(newSession);
-      sessionRepo.save.mockResolvedValue(newSession);
+    it('usa getDefaultCashFund del systemConfigService como fondo inicial', async () => {
+      systemConfigService.getDefaultCashFund.mockResolvedValue(2500);
+      const { newSession } = setupHappyPathQr({ initialBalance: 2500 });
 
-      const result = await service.openSession({ initialBalance: 2500 }, mockUser());
+      const result = await service.openSession({ initialBalance: 9999 }, mockUser());
+
+      expect(systemConfigService.getDefaultCashFund).toHaveBeenCalled();
       expect(result.initialBalance).toBe(2500);
     });
 
     it('lanza ConflictException si ya existe una sesión OPEN', async () => {
-      sessionRepo.findOne.mockResolvedValue(mockSession({ status: CashSessionStatus.OPEN }));
+      const qr = makeMockQr();
+      qr.query.mockResolvedValueOnce([]); // advisory lock
+      qr.manager.findOne.mockResolvedValueOnce(mockSession({ status: CashSessionStatus.OPEN }));
+      dataSource.createQueryRunner.mockReturnValue(qr);
 
       await expect(service.openSession({ initialBalance: 0 }, mockUser())).rejects.toThrow(
         ConflictException,
       );
+      expect(qr.rollbackTransaction).toHaveBeenCalled();
     });
 
     it('lanza ConflictException con código 23505 de la DB (pre-migración)', async () => {
-      sessionRepo.findOne.mockResolvedValue(null);
-      sessionRepo.create.mockReturnValue(mockSession());
-      sessionRepo.save.mockRejectedValue({ code: '23505' });
+      const qr = makeMockQr();
+      qr.query
+        .mockResolvedValueOnce([]) // advisory lock
+        .mockResolvedValueOnce([]); // orphaned days query
+      qr.manager.findOne
+        .mockResolvedValueOnce(null) // no CashSession OPEN
+        .mockResolvedValueOnce(null); // no DailyClosureRecord
+      qr.manager.create.mockReturnValue(mockSession());
+      qr.manager.save.mockRejectedValue({ code: '23505' });
+      dataSource.createQueryRunner.mockReturnValue(qr);
 
       await expect(service.openSession({ initialBalance: 0 }, mockUser())).rejects.toThrow(
         ConflictException,
       );
+      expect(qr.rollbackTransaction).toHaveBeenCalled();
     });
 
-    it('permite abrir sesión aunque ya haya una CLOSED hoy (turnos mañana/tarde)', async () => {
-      sessionRepo.findOne.mockResolvedValue(null);
-      const newSession = mockSession();
-      sessionRepo.create.mockReturnValue(newSession);
-      sessionRepo.save.mockResolvedValue(newSession);
+    it('puede abrir una segunda sesión en el mismo día si no hay jornada cerrada', async () => {
+      const { qr } = setupHappyPathQr();
 
-      await expect(
-        service.openSession({ initialBalance: 1000 }, mockUser()),
-      ).resolves.toBeDefined();
+      await expect(service.openSession({ initialBalance: 1000 }, mockUser())).resolves.toBeDefined();
+      expect(qr.manager.delete).not.toHaveBeenCalled();
+    });
+
+    it('lanza ConflictException con errorCode DAY_ALREADY_CLOSED si jornada cerrada existe y no hay conflictAction', async () => {
+      const TODAY = '2026-06-16';
+      jest.spyOn(service, 'getBusinessDate').mockReturnValue(TODAY);
+
+      const qr = makeMockQr();
+      qr.query
+        .mockResolvedValueOnce([]) // advisory lock
+        .mockResolvedValueOnce([]); // orphaned days query
+      qr.manager.findOne
+        .mockResolvedValueOnce(null) // no CashSession OPEN
+        .mockResolvedValueOnce({ id: 'closure-uuid', date: TODAY }); // DailyClosureRecord existe
+      dataSource.createQueryRunner.mockReturnValue(qr);
+
+      let thrown: any;
+      try {
+        await service.openSession({ initialBalance: 0 }, mockUser());
+      } catch (e) {
+        thrown = e;
+      }
+
+      expect(thrown).toBeInstanceOf(ConflictException);
+      expect(thrown.getResponse()).toMatchObject({ errorCode: 'DAY_ALREADY_CLOSED' });
+      expect(qr.rollbackTransaction).toHaveBeenCalled();
+      expect(qr.release).toHaveBeenCalled();
+    });
+
+    it('procesa conflictAction reopen_today: elimina el cierre y crea sesión con fecha actual', async () => {
+      const TODAY = '2026-06-16';
+      jest.spyOn(service, 'getBusinessDate').mockReturnValue(TODAY);
+
+      const closure = { id: 'closure-uuid', date: TODAY };
+      const newSession = mockSession({ date: TODAY });
+
+      const qr = makeMockQr();
+      qr.query
+        .mockResolvedValueOnce([]) // advisory lock
+        .mockResolvedValueOnce([]) // orphaned days query
+        .mockResolvedValueOnce([0]); // sweep UPDATE result
+      qr.manager.findOne
+        .mockResolvedValueOnce(null) // no CashSession OPEN
+        .mockResolvedValueOnce(closure); // DailyClosureRecord existe
+      qr.manager.create.mockReturnValue(newSession);
+      qr.manager.save.mockResolvedValue(newSession);
+      dataSource.createQueryRunner.mockReturnValue(qr);
+
+      const result = await service.openSession(
+        { initialBalance: 0, conflictAction: 'reopen_today' },
+        mockUser(),
+      );
+
+      expect(qr.manager.delete).toHaveBeenCalledWith(DailyClosureRecord, { id: closure.id });
+      expect(qr.manager.create).toHaveBeenCalledWith(
+        CashSession,
+        expect.objectContaining({ date: TODAY }),
+      );
+      expect(result.date).toBe(TODAY);
+      expect(qr.commitTransaction).toHaveBeenCalled();
+    });
+
+    it('procesa conflictAction force_next_day: crea sesión con fecha de mañana', async () => {
+      const TODAY = '2026-06-16';
+      const TOMORROW = '2026-06-17';
+      jest.spyOn(service, 'getBusinessDate').mockReturnValue(TODAY);
+
+      const closure = { id: 'closure-uuid', date: TODAY };
+      const newSession = mockSession({ date: TOMORROW });
+
+      const qr = makeMockQr();
+      qr.query
+        .mockResolvedValueOnce([]) // advisory lock
+        .mockResolvedValueOnce([]) // orphaned days query
+        .mockResolvedValueOnce([0]); // sweep UPDATE result
+      qr.manager.findOne
+        .mockResolvedValueOnce(null) // no CashSession OPEN
+        .mockResolvedValueOnce(closure); // DailyClosureRecord existe
+      qr.manager.create.mockReturnValue(newSession);
+      qr.manager.save.mockResolvedValue(newSession);
+      dataSource.createQueryRunner.mockReturnValue(qr);
+
+      const result = await service.openSession(
+        { initialBalance: 0, conflictAction: 'force_next_day' },
+        mockUser(),
+      );
+
+      expect(qr.manager.delete).not.toHaveBeenCalled();
+      expect(qr.manager.create).toHaveBeenCalledWith(
+        CashSession,
+        expect.objectContaining({ date: TOMORROW }),
+      );
+      expect(result.date).toBe(TOMORROW);
+      expect(qr.commitTransaction).toHaveBeenCalled();
     });
   });
 
   describe('closeSession', () => {
+    // mockSession() tiene initialBalance: 5000
+    // cashExpectedInDrawer = initialBalance + cashIncome - cashExpenseTotal
+    // difference           = cashCounted    - cashExpectedInDrawer
+
     it('cierra la sesión y calcula la diferencia correctamente (sobrante)', async () => {
       const session = mockSession();
       sessionRepo.findOne.mockResolvedValue(session);
-      dataSource.query.mockResolvedValue([{ cash_expected: '10000', transfer_total: '2000' }]);
+      // cashExpectedInDrawer = 5000 + 5000 - 0 = 10000 → difference = 10500 - 10000 = 500
+      dataSource.query.mockResolvedValue([{ cash_income: '5000', cash_expense_total: '0', transfer_total: '2000' }]);
       sessionRepo.save.mockResolvedValue({ ...session, status: CashSessionStatus.CLOSED });
 
       const result = await service.closeSession({ cashCounted: 10500 }, mockUser());
@@ -220,7 +379,8 @@ describe('CashRegisterService', () => {
 
     it('retorna "exact" cuando lo contado coincide exactamente con lo esperado', async () => {
       sessionRepo.findOne.mockResolvedValue(mockSession());
-      dataSource.query.mockResolvedValue([{ cash_expected: '10000', transfer_total: '0' }]);
+      // cashExpectedInDrawer = 5000 + 5000 - 0 = 10000 → difference = 10000 - 10000 = 0
+      dataSource.query.mockResolvedValue([{ cash_income: '5000', cash_expense_total: '0', transfer_total: '0' }]);
       sessionRepo.save.mockResolvedValue({});
 
       const result = await service.closeSession({ cashCounted: 10000 }, mockUser());
@@ -230,7 +390,8 @@ describe('CashRegisterService', () => {
 
     it('retorna "shortage" cuando hay faltante de caja', async () => {
       sessionRepo.findOne.mockResolvedValue(mockSession());
-      dataSource.query.mockResolvedValue([{ cash_expected: '10000', transfer_total: '0' }]);
+      // cashExpectedInDrawer = 5000 + 5000 - 0 = 10000 → difference = 9000 - 10000 = -1000
+      dataSource.query.mockResolvedValue([{ cash_income: '5000', cash_expense_total: '0', transfer_total: '0' }]);
       sessionRepo.save.mockResolvedValue({});
 
       const result = await service.closeSession({ cashCounted: 9000 }, mockUser());
@@ -238,12 +399,13 @@ describe('CashRegisterService', () => {
       expect(result.balances).toBe('shortage');
     });
 
-    it('retorna transferTotal correctamente en el resumen', async () => {
+    it('retorna transferTotal y dayTotal correctamente en el resumen', async () => {
       sessionRepo.findOne.mockResolvedValue(mockSession());
-      dataSource.query.mockResolvedValue([{ cash_expected: '5000', transfer_total: '3000' }]);
+      // cashExpected = 5000 - 0 = 5000 ; transferTotal = 3000 ; dayTotal = 8000
+      dataSource.query.mockResolvedValue([{ cash_income: '5000', cash_expense_total: '0', transfer_total: '3000' }]);
       sessionRepo.save.mockResolvedValue({});
 
-      const result = await service.closeSession({ cashCounted: 5000 }, mockUser());
+      const result = await service.closeSession({ cashCounted: 10000 }, mockUser());
       expect(result.transferTotal).toBe(3000);
       expect(result.dayTotal).toBe(8000);
     });
@@ -306,28 +468,28 @@ describe('CashRegisterService', () => {
     });
 
     it('retorna la fecha de ayer si la hora actual es entre 00:00 y 03:59 en Argentina', () => {
-      const fakeDate = new Date('2025-06-02T05:00:00.000Z');
-      jest.spyOn(global, 'Date').mockImplementation(() => fakeDate as any);
+      // 05:00 UTC = 02:00 AM Argentina → hora comercial anterior
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2025-06-02T05:00:00.000Z'));
 
       const result = service.getBusinessDate();
 
-      expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-
-      jest.restoreAllMocks();
+      expect(result).toBe('2025-06-01');
     });
 
     it('retorna la fecha de hoy si la hora actual es >= 04:00 en Argentina', () => {
-      const fakeDate = new Date('2025-06-01T15:00:00.000Z');
-      jest.spyOn(global, 'Date').mockImplementation(() => fakeDate as any);
+      // 15:00 UTC = 12:00 PM Argentina → misma jornada
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2025-06-01T15:00:00.000Z'));
 
       const result = service.getBusinessDate();
-      expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 
-      jest.restoreAllMocks();
+      expect(result).toBe('2025-06-01');
     });
   });
 
   describe('closeDay', () => {
+    // Fixture con los campos reales que devuelve el SQL de closeDay
     const closedSessionRow = {
       id: 'session-uuid',
       date: '2025-06-01',
@@ -337,8 +499,19 @@ describe('CashRegisterService', () => {
       cash_counted: '10000',
       difference: '500',
       opened_by_name: 'Admin',
-      cash_expected: '9500',
+      cash_income: '9500',       // campo real del SQL
+      cash_expense_total: '0',   // campo real del SQL
       transfer_total: '2000',
+    };
+
+    const setupCloseDayQr = (rows: any[]) => {
+      sessionRepo.findOne.mockResolvedValue(null);
+      // getBusinessDate devuelve la misma fecha que la sesión → no dispara cleanup de bookings huérfanos
+      jest.spyOn(service, 'getBusinessDate').mockReturnValue('2025-06-01');
+      dataSource.query.mockResolvedValue(rows);
+      dailyClosureRepo.findOne.mockResolvedValue(null);
+      dailyClosureRepo.create.mockReturnValue({ date: '2025-06-01' });
+      dailyClosureRepo.save.mockResolvedValue({ date: '2025-06-01' });
     };
 
     it('lanza ConflictException si hay un turno OPEN', async () => {
@@ -347,59 +520,59 @@ describe('CashRegisterService', () => {
       await expect(service.closeDay()).rejects.toThrow(ConflictException);
     });
 
-    it('consolida los turnos cerrados en la ventana activa y retorna el resumen', async () => {
-      sessionRepo.findOne.mockResolvedValue(null);
-      dataSource.query.mockResolvedValue([closedSessionRow]);
+    it('consolida los turnos cerrados y retorna el resumen correcto', async () => {
+      setupCloseDayQr([closedSessionRow]);
 
       const result = await service.closeDay();
 
+      // cashExpected = cash_income - cash_expense_total = 9500 - 0 = 9500
+      // dayTotal     = cashExpected + transferTotal     = 9500 + 2000 = 11500
       expect(result.date).toBe('2025-06-01');
       expect(result.sessions).toHaveLength(1);
       expect(result.totalExpected).toBe(11500);
       expect(result.totalCounted).toBe(10000);
     });
 
-    it('turno trasnoche: consolida sesiones con distinto date pero closedAt en la ventana', async () => {
+    it('solo procesa la fecha más antigua cuando hay sesiones huérfanas de múltiples fechas', async () => {
       const rowA = {
         ...closedSessionRow,
         id: 'sess-a',
         date: '2025-05-30',
-        cash_expected: '5000',
+        cash_income: '5000',
+        cash_expense_total: '0',
         transfer_total: '1000',
         cash_counted: '5000',
-        difference: '0',
       };
       const rowB = {
         ...closedSessionRow,
         id: 'sess-b',
         date: '2025-05-31',
-        cash_expected: '8000',
+        cash_income: '8000',
+        cash_expense_total: '0',
         transfer_total: '2000',
         cash_counted: '8000',
-        difference: '0',
       };
 
-      sessionRepo.findOne.mockResolvedValue(null);
-      dataSource.query.mockResolvedValue([rowA, rowB]);
+      setupCloseDayQr([rowA, rowB]);
+      dailyClosureRepo.create.mockReturnValue({ date: '2025-05-30' });
 
       const result = await service.closeDay();
 
+      // El servicio solo cierra la fecha más antigua (2025-05-30)
       expect(result.date).toBe('2025-05-30');
-      expect(result.sessions).toHaveLength(2);
-      expect(result.totalExpected).toBe(16000);
+      expect(result.sessions).toHaveLength(1);
+      expect(result.totalExpected).toBe(6000); // 5000 + 1000
     });
 
-    it('lanza NotFoundException si no hay turnos cerrados en la ventana activa', async () => {
+    it('lanza NotFoundException si no hay turnos cerrados pendientes', async () => {
       sessionRepo.findOne.mockResolvedValue(null);
       dataSource.query.mockResolvedValue([]);
 
       await expect(service.closeDay()).rejects.toThrow(NotFoundException);
     });
 
-    it('totalCounted es null si algún turno no tiene cashCounted (no debería ocurrir en práctica)', async () => {
-      const rowWithoutCount = { ...closedSessionRow, cash_counted: null, difference: null };
-      sessionRepo.findOne.mockResolvedValue(null);
-      dataSource.query.mockResolvedValue([rowWithoutCount]);
+    it('totalCounted es null si algún turno no tiene cashCounted', async () => {
+      setupCloseDayQr([{ ...closedSessionRow, cash_counted: null, difference: null }]);
 
       const result = await service.closeDay();
 
