@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Body,
   Param,
   Query,
@@ -14,6 +15,8 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse } from '@ne
 import { IsOptional, Matches } from 'class-validator';
 import { PosService } from './pos.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
+import { AddSaleItemsDto } from './dto/add-sale-items.dto';
+import { PaySaleDto } from './dto/pay-sale.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
@@ -45,6 +48,20 @@ export class PosController {
   findByDate(@Query() query: SalesQueryDto) {
     const date = query.date ?? new Date().toISOString().split('T')[0];
     return this.posService.findByDate(date);
+  }
+
+  /**
+   * GET /api/v1/sales/open
+   * Lista las cuentas abiertas (torneos/jornadas largas) sin importar la fecha.
+   * DEBE declararse antes de GET /sales/:id para que "open" no matchee como :id.
+   */
+  @Get('open')
+  @ApiOperation({
+    summary: 'Listar cuentas abiertas',
+    description: 'Ventas con status "open": stock ya descontado, cobro pendiente.',
+  })
+  findOpenSales() {
+    return this.posService.findOpenSales();
   }
 
   /**
@@ -91,5 +108,40 @@ export class PosController {
     @Headers('x-idempotency-key') idempotencyKey?: string,
   ) {
     return this.posService.create(dto, user, idempotencyKey);
+  }
+
+  /**
+   * PATCH /api/v1/sales/:id/add-items
+   * Agrega productos a una cuenta abierta existente. Descuenta stock al
+   * instante, igual que en la creación. La venta debe estar en status 'open'.
+   */
+  @Patch(':id/add-items')
+  @ApiOperation({
+    summary: 'Agregar items a una cuenta abierta',
+    description: 'Descuenta stock al instante. Falla si la venta no está en status "open".',
+  })
+  @ApiResponse({ status: 200, description: 'Items agregados.' })
+  @ApiResponse({ status: 400, description: 'La venta no está abierta o stock insuficiente.' })
+  addItems(@Param('id') id: string, @Body() dto: AddSaleItemsDto) {
+    return this.posService.addItems(id, dto);
+  }
+
+  /**
+   * POST /api/v1/sales/:id/pay
+   * Cobra y cierra una cuenta abierta: valida el pago, marca status 'paid'
+   * y registra el movimiento en la sesión de caja ACTIVA del empleado.
+   */
+  @Post(':id/pay')
+  @ApiOperation({
+    summary: 'Cobrar y cerrar una cuenta abierta',
+    description: 'Marca la venta como "paid" y genera la transacción en la sesión de caja actual.',
+  })
+  @ApiResponse({ status: 200, description: 'Cuenta cobrada y cerrada.' })
+  @ApiResponse({
+    status: 400,
+    description: 'La venta no está abierta, ya fue cobrada, o pago insuficiente.',
+  })
+  pay(@Param('id') id: string, @Body() dto: PaySaleDto, @CurrentUser() user: User) {
+    return this.posService.pay(id, dto, user);
   }
 }

@@ -32,6 +32,7 @@ describe('ProductsService', () => {
     findOne: jest.fn(),
     create: jest.fn(),
     save: jest.fn(),
+    update: jest.fn(),
     count: jest.fn(),
     createQueryBuilder: jest.fn(),
   };
@@ -43,6 +44,7 @@ describe('ProductsService', () => {
 
   const mockQb = {
     leftJoinAndSelect: jest.fn().mockReturnThis(),
+    leftJoin: jest.fn().mockReturnThis(),
     where: jest.fn().mockReturnThis(),
     andWhere: jest.fn().mockReturnThis(),
     orderBy: jest.fn().mockReturnThis(),
@@ -65,6 +67,7 @@ describe('ProductsService', () => {
     jest.clearAllMocks();
     productRepo.createQueryBuilder.mockReturnValue(mockQb);
     mockQb.leftJoinAndSelect.mockReturnThis();
+    mockQb.leftJoin.mockReturnThis();
     mockQb.where.mockReturnThis();
     mockQb.andWhere.mockReturnThis();
     mockQb.orderBy.mockReturnThis();
@@ -165,11 +168,13 @@ describe('ProductsService', () => {
     it('ajusta el stock y loguea la diferencia', async () => {
       const product = mockProduct({ stock: 10 });
       productRepo.findOne.mockResolvedValue(product);
-      productRepo.save.mockResolvedValue({ ...product, stock: 20 });
-      productRepo.findOne.mockResolvedValue({ ...product, stock: 20 });
+      productRepo.update.mockResolvedValue({ affected: 1 });
 
       await service.update('product-uuid', { stock: 20 });
-      expect(productRepo.save).toHaveBeenCalledWith(expect.objectContaining({ stock: 20 }));
+      expect(productRepo.update).toHaveBeenCalledWith(
+        'product-uuid',
+        expect.objectContaining({ stock: 20 }),
+      );
     });
 
     it('lanza BadRequestException si el stock es negativo', async () => {

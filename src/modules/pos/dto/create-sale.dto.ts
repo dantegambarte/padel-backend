@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsArray,
+  IsEnum,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -8,10 +9,12 @@ import {
   IsUUID,
   MaxLength,
   Min,
+  ValidateIf,
   ValidateNested,
   ArrayMinSize,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { SaleStatus } from '../entities/sale.entity';
 
 export class SaleItemInputDto {
   @ApiProperty({ example: 'uuid-del-producto' })
@@ -25,8 +28,22 @@ export class SaleItemInputDto {
 }
 
 export class CreateSaleDto {
-  @ApiPropertyOptional({ example: 'Juan Pérez', description: 'Nombre del cliente (opcional)' })
+  @ApiPropertyOptional({
+    enum: SaleStatus,
+    default: SaleStatus.PAID,
+    description: "'open' = cuenta abierta (cobro pendiente), 'paid' = venta cobrada al momento.",
+  })
   @IsOptional()
+  @IsEnum(SaleStatus, { message: 'status debe ser "open" o "paid".' })
+  status?: SaleStatus;
+
+  @ApiPropertyOptional({
+    example: 'Juan Pérez',
+    description:
+      'Nombre del cliente. Obligatorio si status es "open" (para identificar la cuenta).',
+  })
+  @ValidateIf((dto: CreateSaleDto) => dto.status === SaleStatus.OPEN)
+  @IsNotEmpty({ message: 'customerName es obligatorio para abrir una cuenta (status "open").' })
   @IsString()
   @MaxLength(100)
   customerName?: string;
