@@ -9,12 +9,14 @@ import {
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 
-import { Sale } from './entities/sale.entity';
+import { Sale, SaleStatus } from './entities/sale.entity';
 import { SaleItem } from './entities/sale-item.entity';
 import { Product } from '../products/entities/product.entity';
 import { ProductCategory } from '../products/entities/product-category.entity';
 import { User } from '../users/entities/user.entity';
 import { CreateSaleDto, SaleItemInputDto } from './dto/create-sale.dto';
+import { AddSaleItemsDto } from './dto/add-sale-items.dto';
+import { PaySaleDto } from './dto/pay-sale.dto';
 import { CashRegisterService } from '../cash-register/cash-register.service';
 import { TransactionType } from '../cash-register/entities/transaction.entity';
 
@@ -67,15 +69,19 @@ export class PosService {
     await queryRunner.startTransaction();
 
     try {
+      const isOpen = dto.status === SaleStatus.OPEN;
+
       const resolvedItems = await this.resolveItemsWithLock(dto.items, queryRunner);
 
       const total = resolvedItems.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
 
-      const amountCash = dto.amountCash ?? 0;
-      const amountTransfer = dto.amountTransfer ?? 0;
+      // En cuentas abiertas no se cobra al crear: el pago se registra recién
+      // en pay(). Los montos recibidos en el DTO se ignoran.
+      const amountCash = isOpen ? 0 : (dto.amountCash ?? 0);
+      const amountTransfer = isOpen ? 0 : (dto.amountTransfer ?? 0);
       const totalPaid = amountCash + amountTransfer;
 
-      if (totalPaid < total) {
+      if (!isOpen && totalPaid < total) {
         throw new BadRequestException(
           `Pago insuficiente. Total: $${total.toLocaleString('es-AR')}, ` +
             `cobrado: $${totalPaid.toLocaleString('es-AR')}. ` +
@@ -90,6 +96,7 @@ export class PosService {
         amountCash,
         amountTransfer,
         total,
+        status: isOpen ? SaleStatus.OPEN : SaleStatus.PAID,
         cashSessionId: session.id,
         idempotencyKey: idempotencyKey ?? null,
         customerName: dto.customerName?.trim() || null,
@@ -108,6 +115,9 @@ export class PosService {
 
       await queryRunner.manager.save(SaleItem, saleItems);
 
+      // El stock se descuenta siempre al crear la venta, sea 'open' o 'paid':
+      // en cuentas abiertas los productos ya salieron de cantina aunque no
+      // se hayan cobrado todavía.
       for (const item of resolvedItems) {
         if (!item.isRental) {
           await queryRunner.manager.decrement(
@@ -119,23 +129,33 @@ export class PosService {
         }
       }
 
-      await this.cashRegisterService.registerTransaction(queryRunner, {
-        cashSessionId: session.id,
-        type: TransactionType.SALE,
-        referenceId: savedSale.id,
-        concept: `Venta cantina - ${resolvedItems.length} producto(s)`,
-        amountCash,
-        amountTransfer,
-        createdByUserId: user.id,
-      });
+      // Cuentas abiertas no generan movimiento de caja hasta que se pagan (pay()).
+      if (!isOpen) {
+        await this.cashRegisterService.registerTransaction(queryRunner, {
+          cashSessionId: session.id,
+          type: TransactionType.SALE,
+          referenceId: savedSale.id,
+          concept: `Venta cantina - ${resolvedItems.length} producto(s)`,
+          amountCash,
+          amountTransfer,
+          createdByUserId: user.id,
+        });
+      }
 
       await queryRunner.commitTransaction();
 
-      this.logger.log(
-        `Venta confirmada: $${total.toLocaleString('es-AR')} ` +
-          `(${resolvedItems.length} productos, efectivo: $${amountCash}, ` +
-          `transferencia: $${amountTransfer}) por ${user.username}`,
-      );
+      if (isOpen) {
+        this.logger.log(
+          `Cuenta abierta creada: $${total.toLocaleString('es-AR')} ` +
+            `(${resolvedItems.length} productos) para "${sale.customerName}" por ${user.username}`,
+        );
+      } else {
+        this.logger.log(
+          `Venta confirmada: $${total.toLocaleString('es-AR')} ` +
+            `(${resolvedItems.length} productos, efectivo: $${amountCash}, ` +
+            `transferencia: $${amountTransfer}) por ${user.username}`,
+        );
+      }
 
       return this.findOneWithDetails(savedSale.id);
     } catch (error) {
@@ -249,6 +269,179 @@ export class PosService {
     });
     if (!sale) throw new NotFoundException(`Sale ${id} not found`);
     return sale;
+  }
+
+  /** Retorna todas las cuentas abiertas (status 'open'), sin importar la fecha. */
+  async findOpenSales(): Promise<Sale[]> {
+    return this.saleRepo.find({
+      where: { status: SaleStatus.OPEN },
+      relations: ['items', 'items.product', 'createdByUser'],
+      order: { createdAt: 'ASC' },
+    });
+  }
+
+  /**
+   * Agrega items a una cuenta abierta existente. Descuenta stock al instante,
+   * igual que en la creación. La venta debe estar en status 'open'.
+   */
+  async addItems(saleId: string, dto: AddSaleItemsDto): Promise<Sale> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const sale = await queryRunner.manager.findOne(Sale, {
+        where: { id: saleId },
+        lock: { mode: 'pessimistic_write' },
+        loadEagerRelations: false,
+      });
+
+      if (!sale) throw new NotFoundException(`Sale ${saleId} not found`);
+      if (sale.status !== SaleStatus.OPEN) {
+        throw new BadRequestException(
+          `La cuenta ${saleId} no está abierta (status: ${sale.status}). No se pueden agregar items.`,
+        );
+      }
+
+      const resolvedItems = await this.resolveItemsWithLock(dto.items, queryRunner);
+      const addedTotal = resolvedItems.reduce(
+        (sum, item) => sum + item.unitPrice * item.quantity,
+        0,
+      );
+
+      const saleItems = resolvedItems.map((item) =>
+        queryRunner.manager.create(SaleItem, {
+          saleId: sale.id,
+          productId: item.productId,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+        }),
+      );
+
+      await queryRunner.manager.save(SaleItem, saleItems);
+
+      for (const item of resolvedItems) {
+        if (!item.isRental) {
+          await queryRunner.manager.decrement(
+            Product,
+            { id: item.productId },
+            'stock',
+            item.quantity,
+          );
+        }
+      }
+
+      await queryRunner.manager.increment(Sale, { id: sale.id }, 'total', addedTotal);
+
+      await queryRunner.commitTransaction();
+
+      this.logger.log(
+        `Items agregados a cuenta abierta ${sale.id}: +$${addedTotal.toLocaleString('es-AR')} ` +
+          `(${resolvedItems.length} producto(s)).`,
+      );
+
+      return this.findOneWithDetails(sale.id);
+    } catch (error) {
+      try {
+        await queryRunner.rollbackTransaction();
+      } catch (rollbackError) {
+        this.logger.error(
+          'Error al intentar ROLLBACK (transacción ya abortada por DB):',
+          rollbackError,
+        );
+      }
+
+      this.logger.error(
+        `ROLLBACK al agregar items a cuenta abierta: ${error.message}`,
+        error.stack,
+      );
+
+      this.handleDbError(error);
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  /**
+   * Cobra/cierra una cuenta abierta: valida que el pago cubra el total
+   * acumulado, marca la venta como 'paid' y registra el movimiento en la
+   * sesión de caja ACTIVA en el momento del cobro (no la de apertura).
+   */
+  async pay(saleId: string, dto: PaySaleDto, user: User): Promise<Sale> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const sale = await queryRunner.manager.findOne(Sale, {
+        where: { id: saleId },
+        lock: { mode: 'pessimistic_write' },
+        loadEagerRelations: false,
+      });
+
+      if (!sale) throw new NotFoundException(`Sale ${saleId} not found`);
+      if (sale.status !== SaleStatus.OPEN) {
+        throw new BadRequestException(
+          `La cuenta ${saleId} no está abierta (status: ${sale.status}). Ya fue cobrada.`,
+        );
+      }
+
+      const amountCash = dto.amountCash ?? 0;
+      const amountTransfer = dto.amountTransfer ?? 0;
+      const totalPaid = amountCash + amountTransfer;
+      const total = Number(sale.total);
+
+      if (totalPaid < total) {
+        throw new BadRequestException(
+          `Pago insuficiente. Total: $${total.toLocaleString('es-AR')}, ` +
+            `cobrado: $${totalPaid.toLocaleString('es-AR')}. ` +
+            `Diferencia: $${(total - totalPaid).toLocaleString('es-AR')}.`,
+        );
+      }
+
+      const session = await this.cashRegisterService.getActiveSessionOrFail(queryRunner, user.id);
+
+      await queryRunner.manager.update(Sale, sale.id, {
+        status: SaleStatus.PAID,
+        amountCash,
+        amountTransfer,
+        cashSessionId: session.id,
+      });
+
+      await this.cashRegisterService.registerTransaction(queryRunner, {
+        cashSessionId: session.id,
+        type: TransactionType.SALE,
+        referenceId: sale.id,
+        concept: `Cobro cuenta abierta - ${sale.customerName ?? 'sin nombre'}`,
+        amountCash,
+        amountTransfer,
+        createdByUserId: user.id,
+      });
+
+      await queryRunner.commitTransaction();
+
+      this.logger.log(
+        `Cuenta abierta ${sale.id} cobrada: $${total.toLocaleString('es-AR')} ` +
+          `(efectivo: $${amountCash}, transferencia: $${amountTransfer}) por ${user.username}`,
+      );
+
+      return this.findOneWithDetails(sale.id);
+    } catch (error) {
+      try {
+        await queryRunner.rollbackTransaction();
+      } catch (rollbackError) {
+        this.logger.error(
+          'Error al intentar ROLLBACK (transacción ya abortada por DB):',
+          rollbackError,
+        );
+      }
+
+      this.logger.error(`ROLLBACK al cobrar cuenta abierta: ${error.message}`, error.stack);
+
+      this.handleDbError(error);
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   /** Convierte errores de base de datos en excepciones HTTP apropiadas. */

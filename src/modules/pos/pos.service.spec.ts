@@ -3,7 +3,8 @@ import { NotFoundException, BadRequestException, ConflictException } from '@nest
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { PosService } from './pos.service';
-import { Sale } from './entities/sale.entity';
+import { Sale, SaleStatus } from './entities/sale.entity';
+import { Product } from '../products/entities/product.entity';
 import { User, UserRole } from '../users/entities/user.entity';
 import { CashRegisterService } from '../cash-register/cash-register.service';
 
@@ -16,8 +17,10 @@ const mockSale = (overrides: Partial<Sale> = {}): Sale =>
     total: 3000,
     amountCash: 3000,
     amountTransfer: 0,
+    status: SaleStatus.PAID,
     cashSessionId: 'session-uuid',
     createdByUserId: 'emp-uuid',
+    customerName: null,
     idempotencyKey: null,
     items: [],
     createdAt: new Date(),
@@ -37,6 +40,7 @@ describe('PosService', () => {
   const saleRepo = {
     createQueryBuilder: jest.fn().mockReturnValue(mockQb),
     findOne: jest.fn(),
+    find: jest.fn(),
   };
 
   const mockManager = {
@@ -44,6 +48,8 @@ describe('PosService', () => {
     create: jest.fn(),
     save: jest.fn(),
     decrement: jest.fn(),
+    increment: jest.fn(),
+    update: jest.fn(),
   };
 
   const mockQueryRunner = {
@@ -76,6 +82,11 @@ describe('PosService', () => {
 
     service = module.get<PosService>(PosService);
     jest.clearAllMocks();
+    // clearAllMocks no vacía la cola de mockResolvedValueOnce: si un test anterior
+    // encoló un valor y nunca llegó a consumirlo (p. ej. porque el service tiró
+    // antes), ese valor queda pendiente y contamina el próximo test que sí llame
+    // al mock. Reset explícito para evitar falsos negativos entre tests.
+    saleRepo.findOne.mockReset();
 
     dataSource.createQueryRunner.mockReturnValue(mockQueryRunner);
     mockQueryRunner.connect.mockResolvedValue(undefined);
@@ -191,6 +202,164 @@ describe('PosService', () => {
           mockUser(),
         ),
       ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('create - cuenta abierta (status "open")', () => {
+    const product = { id: 'p1', name: 'Agua', salePrice: 300, stock: 10, isActive: true };
+
+    beforeEach(() => {
+      mockManager.findOne.mockResolvedValue(product);
+      mockManager.create.mockImplementation((_entity, data) => data);
+      mockManager.save.mockImplementation((_entity, data) =>
+        Promise.resolve(Array.isArray(data) ? data : { id: 'sale-uuid', ...data }),
+      );
+      saleRepo.findOne.mockResolvedValue(
+        mockSale({ status: SaleStatus.OPEN, customerName: 'Lu', amountCash: 0, amountTransfer: 0 }),
+      );
+    });
+
+    it('crea la venta con status open, monto en 0 y descuenta stock sin registrar caja', async () => {
+      const result = await service.create(
+        {
+          status: SaleStatus.OPEN,
+          customerName: 'Lu',
+          items: [{ productId: 'p1', quantity: 1 }],
+        } as any,
+        mockUser(),
+      );
+
+      expect(result.status).toBe(SaleStatus.OPEN);
+      expect(mockManager.decrement).toHaveBeenCalledWith(
+        Product,
+        { id: 'p1' },
+        'stock',
+        1,
+      );
+      expect(cashRegisterService.registerTransaction).not.toHaveBeenCalled();
+    });
+
+    it('no exige que el pago cubra el total (se paga después con /pay)', async () => {
+      await expect(
+        service.create(
+          {
+            status: SaleStatus.OPEN,
+            customerName: 'Lu',
+            items: [{ productId: 'p1', quantity: 5 }],
+          } as any,
+          mockUser(),
+        ),
+      ).resolves.toBeDefined();
+    });
+  });
+
+  describe('findOpenSales', () => {
+    it('retorna las ventas con status open', async () => {
+      saleRepo.find.mockResolvedValue([mockSale({ status: SaleStatus.OPEN })]);
+
+      const result = await service.findOpenSales();
+
+      expect(result).toHaveLength(1);
+      expect(saleRepo.find).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { status: SaleStatus.OPEN } }),
+      );
+    });
+  });
+
+  describe('addItems', () => {
+    const openSale = mockSale({ id: 'sale-uuid', status: SaleStatus.OPEN, total: 300 });
+    const product = { id: 'p2', name: 'Barrita', salePrice: 350, stock: 10, isActive: true };
+
+    it('agrega items, descuenta stock e incrementa el total', async () => {
+      mockManager.findOne.mockImplementation((entity: any) => {
+        if (entity === Sale) return Promise.resolve(openSale);
+        if (entity === Product) return Promise.resolve(product);
+        return Promise.resolve(null);
+      });
+      mockManager.create.mockImplementation((_entity, data) => data);
+      mockManager.save.mockResolvedValue([]);
+      saleRepo.findOne.mockResolvedValue(mockSale({ status: SaleStatus.OPEN, total: 650 }));
+
+      const result = await service.addItems('sale-uuid', {
+        items: [{ productId: 'p2', quantity: 1 }],
+      } as any);
+
+      expect(mockManager.decrement).toHaveBeenCalledWith(Product, { id: 'p2' }, 'stock', 1);
+      expect(mockManager.increment).toHaveBeenCalledWith(
+        Sale,
+        { id: 'sale-uuid' },
+        'total',
+        350,
+      );
+      expect(result).toBeDefined();
+    });
+
+    it('lanza NotFoundException si la cuenta no existe', async () => {
+      mockManager.findOne.mockResolvedValueOnce(null);
+
+      await expect(
+        service.addItems('missing', { items: [{ productId: 'p2', quantity: 1 }] } as any),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('lanza BadRequestException si la venta no está abierta (ya está paid)', async () => {
+      mockManager.findOne.mockResolvedValueOnce(mockSale({ status: SaleStatus.PAID }));
+
+      await expect(
+        service.addItems('sale-uuid', { items: [{ productId: 'p2', quantity: 1 }] } as any),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('pay', () => {
+    it('cobra la cuenta, marca status paid y registra la transacción en caja', async () => {
+      const openSale = mockSale({ id: 'sale-uuid', status: SaleStatus.OPEN, total: 1000 });
+      mockManager.findOne.mockResolvedValueOnce(openSale);
+      saleRepo.findOne.mockResolvedValue(
+        mockSale({ status: SaleStatus.PAID, amountCash: 1000, total: 1000 }),
+      );
+
+      const result = await service.pay(
+        'sale-uuid',
+        { amountCash: 1000, amountTransfer: 0 },
+        mockUser(),
+      );
+
+      expect(mockManager.update).toHaveBeenCalledWith(
+        Sale,
+        'sale-uuid',
+        expect.objectContaining({ status: SaleStatus.PAID, amountCash: 1000 }),
+      );
+      expect(cashRegisterService.registerTransaction).toHaveBeenCalledWith(
+        mockQueryRunner,
+        expect.objectContaining({ referenceId: 'sale-uuid', amountCash: 1000 }),
+      );
+      expect(result.status).toBe(SaleStatus.PAID);
+    });
+
+    it('lanza NotFoundException si la cuenta no existe', async () => {
+      mockManager.findOne.mockResolvedValueOnce(null);
+
+      await expect(
+        service.pay('missing', { amountCash: 100 }, mockUser()),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('lanza BadRequestException si la venta ya fue pagada', async () => {
+      mockManager.findOne.mockResolvedValueOnce(mockSale({ status: SaleStatus.PAID }));
+
+      await expect(
+        service.pay('sale-uuid', { amountCash: 100 }, mockUser()),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('lanza BadRequestException si el pago no cubre el total', async () => {
+      const openSale = mockSale({ id: 'sale-uuid', status: SaleStatus.OPEN, total: 1000 });
+      mockManager.findOne.mockResolvedValueOnce(openSale);
+
+      await expect(
+        service.pay('sale-uuid', { amountCash: 100 }, mockUser()),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 });
