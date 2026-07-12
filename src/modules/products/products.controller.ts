@@ -21,7 +21,9 @@ import { QueryProductsDto } from './dto/query-products.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { UserRole } from '../users/entities/user.entity';
+import { Product } from './entities/product.entity';
 
 @ApiTags('Productos')
 @ApiBearerAuth()
@@ -31,9 +33,28 @@ export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
   /**
+   * Quita costPrice de la respuesta para roles distintos de ADMIN.
+   * El frontend ya oculta la columna visualmente (products.component.ts),
+   * pero eso no evita que el dato viaje en el JSON crudo — hay que filtrarlo
+   * acá para que un empleado no lo vea inspeccionando la red del navegador.
+   */
+  private stripCostPrice<T extends Partial<Product>>(role: UserRole, data: T): Omit<T, 'costPrice'>;
+  private stripCostPrice<T extends Partial<Product>>(
+    role: UserRole,
+    data: T[],
+  ): Omit<T, 'costPrice'>[];
+  private stripCostPrice<T extends Partial<Product>>(role: UserRole, data: T | T[]) {
+    if (role === UserRole.ADMIN) return data;
+    const strip = (p: T) => {
+      const { costPrice, ...rest } = p;
+      return rest;
+    };
+    return Array.isArray(data) ? data.map(strip) : strip(data);
+  }
+
+  /**
    * GET /api/v1/products
    * Acceso: Admin (con precios de costo) y Empleado (sin precios de costo).
-   * El frontend diferencia lo que muestra según el rol del token.
    */
   @Get()
   @ApiOperation({
@@ -41,8 +62,9 @@ export class ProductsController {
     description:
       'Soporta filtros: ?search=agua, ?categoryId=uuid, ?lowStock=true, ?onlyActive=false',
   })
-  findAll(@Query() query: QueryProductsDto) {
-    return this.productsService.findAll(query);
+  async findAll(@Query() query: QueryProductsDto, @CurrentUser('role') role: UserRole) {
+    const products = await this.productsService.findAll(query);
+    return this.stripCostPrice(role, products);
   }
 
   /**
@@ -55,8 +77,9 @@ export class ProductsController {
   @ApiOperation({
     summary: 'Listar productos destacados (para modal de Agenda)',
   })
-  findFeatured() {
-    return this.productsService.findFeatured();
+  async findFeatured(@CurrentUser('role') role: UserRole) {
+    const products = await this.productsService.findFeatured();
+    return this.stripCostPrice(role, products);
   }
 
   /**
@@ -65,8 +88,9 @@ export class ProductsController {
    */
   @Get('low-stock')
   @ApiOperation({ summary: 'Productos con stock bajo el mínimo (alertas)' })
-  findLowStock() {
-    return this.productsService.findLowStock();
+  async findLowStock(@CurrentUser('role') role: UserRole) {
+    const products = await this.productsService.findLowStock();
+    return this.stripCostPrice(role, products);
   }
 
   /**
@@ -110,8 +134,9 @@ export class ProductsController {
   @Get(':id')
   @ApiOperation({ summary: 'Obtener un producto por ID' })
   @ApiParam({ name: 'id', type: 'string', format: 'uuid' })
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.productsService.findOne(id);
+  async findOne(@Param('id', ParseUUIDPipe) id: string, @CurrentUser('role') role: UserRole) {
+    const product = await this.productsService.findOne(id);
+    return this.stripCostPrice(role, product);
   }
 
   /**
