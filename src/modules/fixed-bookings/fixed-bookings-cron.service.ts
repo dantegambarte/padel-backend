@@ -15,9 +15,10 @@ export class FixedBookingsCronService {
    */
   @Cron(CronExpression.EVERY_DAY_AT_3AM)
   async weeklyMaintenance(): Promise<void> {
-    this.logger.log('[CRON] Iniciando mantenimiento semanal de turnos fijos.');
+    const timestamp = new Date().toISOString();
+    this.logger.log(`[CRON] [${timestamp}] Iniciando mantenimiento semanal de turnos fijos.`);
     await this.fixedBookingsService.extendAllActive();
     await this.fixedBookingsService.syncPrices();
-    this.logger.log('[CRON] Mantenimiento semanal finalizado.');
+    this.logger.log(`[CRON] [${new Date().toISOString()}] Mantenimiento semanal finalizado.`);
   }
 }
