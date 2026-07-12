@@ -98,18 +98,34 @@ export class CashRegisterService {
       const dayAlreadyClosed = await qr.manager.findOne(DailyClosureRecord, {
         where: { date: commercialDate },
       });
+
       if (dayAlreadyClosed) {
-        const originalDate = commercialDate;
-        const [y, m, d] = commercialDate.split('-').map(Number);
-        const next = new Date(y, m - 1, d + 1);
-        commercialDate = [
-          next.getFullYear(),
-          String(next.getMonth() + 1).padStart(2, '0'),
-          String(next.getDate()).padStart(2, '0'),
-        ].join('-');
-        this.logger.log(
-          `Cierre de Jornada detectado para ${originalDate} — nueva jornada imputada al día siguiente: ${commercialDate}`,
-        );
+        if (!dto.conflictAction) {
+          throw new ConflictException({
+            errorCode: 'DAY_ALREADY_CLOSED',
+            message: `La jornada del ${commercialDate} ya fue cerrada. Indicá cómo querés proceder.`,
+            date: commercialDate,
+          });
+        }
+
+        if (dto.conflictAction === 'reopen_today') {
+          await qr.manager.delete(DailyClosureRecord, { id: dayAlreadyClosed.id });
+          this.logger.log(
+            `Jornada ${commercialDate} reabierta por ${user.username} — cierre eliminado (reopen_today).`,
+          );
+        } else {
+          const originalDate = commercialDate;
+          const [y, m, d] = commercialDate.split('-').map(Number);
+          const next = new Date(y, m - 1, d + 1);
+          commercialDate = [
+            next.getFullYear(),
+            String(next.getMonth() + 1).padStart(2, '0'),
+            String(next.getDate()).padStart(2, '0'),
+          ].join('-');
+          this.logger.log(
+            `Jornada ${originalDate} cerrada — nueva jornada imputada a ${commercialDate} (force_next_day).`,
+          );
+        }
       }
 
       const fondoCajaBase = await this.systemConfigService.getDefaultCashFund();

@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { FixedBookingsController } from './fixed-bookings.controller';
 import { FixedBookingsService } from './fixed-bookings.service';
+import { FixedBookingsCronService } from './fixed-bookings-cron.service';
 
 import { FixedBooking } from './entities/fixed-booking.entity';
 import { Booking } from '../bookings/entities/booking.entity';
@@ -12,7 +13,7 @@ import { PricingShift } from '../pricing-shifts/entities/pricing-shift.entity';
 @Module({
   imports: [TypeOrmModule.forFeature([FixedBooking, Booking, Court, PricingShift])],
   controllers: [FixedBookingsController],
-  providers: [FixedBookingsService],
+  providers: [FixedBookingsService, FixedBookingsCronService],
   exports: [FixedBookingsService],
 })
 export class FixedBookingsModule {}
