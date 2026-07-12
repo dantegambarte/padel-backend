@@ -28,6 +28,7 @@ export class RemindersCronService {
   @Cron(CronExpression.EVERY_HOUR)
   async handleHourlyReminders(): Promise<void> {
     this.resetTrackingIfNewDay();
+    const timestamp = new Date().toISOString();
 
     try {
       const { alert24h, alertSameDay } = await this.remindersService.getUpcomingForCron();
@@ -36,7 +37,7 @@ export class RemindersCronService {
         if (this.alerted24h.has(item.bookingId)) continue;
         this.alerted24h.add(item.bookingId);
         this.logger.log(
-          `[24h] ${item.clientName} — ${item.hour}hs en ${item.courtName} | ${item.date} | Tel: ${item.phoneNumber ?? 'sin número'}`,
+          `[24h] [${timestamp}] ${item.clientName} — ${item.hour}hs en ${item.courtName} | ${item.date} | Tel: ${item.phoneNumber ?? 'sin número'}`,
         );
       }
 
@@ -44,11 +45,11 @@ export class RemindersCronService {
         if (this.alertedSameDay.has(item.bookingId)) continue;
         this.alertedSameDay.add(item.bookingId);
         this.logger.log(
-          `[HOY] ${item.clientName} — ${item.hour}hs en ${item.courtName} | Tel: ${item.phoneNumber ?? 'sin número'}`,
+          `[HOY] [${timestamp}] ${item.clientName} — ${item.hour}hs en ${item.courtName} | Tel: ${item.phoneNumber ?? 'sin número'}`,
         );
       }
     } catch (err) {
-      this.logger.error('Error procesando recordatorios horarios', err);
+      this.logger.error(`[${timestamp}] Error procesando recordatorios horarios`, err);
     }
   }
 

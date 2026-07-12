@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNumber, IsOptional, IsString, Min, MaxLength } from 'class-validator';
+import { IsNumber, IsOptional, IsString, Min, MaxLength, IsIn } from 'class-validator';
 
 export class OpenSessionDto {
   @ApiProperty({
@@ -20,4 +20,17 @@ export class OpenSessionDto {
   @IsString()
   @MaxLength(500)
   notes?: string;
+
+  @ApiPropertyOptional({
+    enum: ['reopen_today', 'force_next_day'],
+    description:
+      'Acción a tomar cuando la jornada actual ya fue cerrada. ' +
+      '"reopen_today" elimina el cierre del día y reabre la jornada de hoy. ' +
+      '"force_next_day" imputa la nueva sesión al día siguiente.',
+  })
+  @IsOptional()
+  @IsIn(['reopen_today', 'force_next_day'], {
+    message: 'conflictAction debe ser "reopen_today" o "force_next_day".',
+  })
+  conflictAction?: 'reopen_today' | 'force_next_day';
 }

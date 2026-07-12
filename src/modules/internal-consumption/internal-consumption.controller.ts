@@ -71,6 +71,7 @@ export class InternalConsumptionController {
 
   /** PATCH /internal-consumption/settle — liquidate teacher debt */
   @Patch('settle')
+  @Roles(UserRole.ADMIN, UserRole.EMPLOYEE)
   @HttpCode(HttpStatus.OK)
   settle(@Body() dto: SettleTeacherDebtDto, @CurrentUser('id') userId: string) {
     return this.service.settleTeacherDebt(dto, userId);

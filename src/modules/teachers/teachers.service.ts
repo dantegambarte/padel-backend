@@ -127,7 +127,7 @@ export class TeachersService {
       throw new BadRequestException('Los parámetros startDate y endDate son obligatorios.');
     }
 
-    const [teacher, shifts, bookings] = await Promise.all([
+    const [teacher, shifts, bookings, pendingConsumptions] = await Promise.all([
       this.findOne(id),
       this.shiftRepo.find({ where: { isActive: true } }),
       this.bookingRepo
@@ -140,6 +140,10 @@ export class TeachersService {
         .orderBy('booking.date', 'ASC')
         .addOrderBy('booking.hour', 'ASC')
         .getMany(),
+      this.consumptionRepo.find({
+        where: { teacherId: id, status: InternalConsumptionStatus.PENDING_PAYMENT },
+        order: { date: 'ASC' },
+      }),
     ]);
 
     const mappedBookings = bookings.map((b) => {
@@ -168,15 +172,33 @@ export class TeachersService {
     const totalMinutes = mappedBookings.reduce((sum, b) => sum + b.durationMinutes, 0);
     const totalAmount = mappedBookings.reduce((sum, b) => sum + b.teacherAmount, 0);
 
+    const mappedConsumptions = pendingConsumptions.map((c) => {
+      const totalCost = +(Number(c.unitCostPrice) * c.quantity).toFixed(2);
+      return {
+        id: c.id,
+        date: c.date,
+        productName: c.product?.name ?? '—',
+        quantity: c.quantity,
+        unitCostPrice: Number(c.unitCostPrice),
+        totalCost,
+        notes: c.notes,
+      };
+    });
+    const consumptionsTotal = +mappedConsumptions.reduce((sum, c) => sum + c.totalCost, 0).toFixed(2);
+
     return {
       teacher,
       period: { startDate, endDate },
       bookings: mappedBookings,
+      consumptions: mappedConsumptions,
       summary: {
         totalBookings: mappedBookings.length,
         totalMinutes,
         totalHours: +(totalMinutes / 60).toFixed(2),
         totalAmount,
+        totalConsumptions: mappedConsumptions.length,
+        consumptionsTotal,
+        grandTotal: +(totalAmount + consumptionsTotal).toFixed(2),
       },
     };
   }
