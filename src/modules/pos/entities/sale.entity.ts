@@ -11,6 +11,11 @@ import { User } from '../../users/entities/user.entity';
 import { CashSession } from '../../cash-register/entities/cash-session.entity';
 import { SaleItem } from './sale-item.entity';
 
+export enum SaleStatus {
+  OPEN = 'open',
+  PAID = 'paid',
+}
+
 /**
  * Venta realizada desde el POS (mostrador).
  * Al confirmarse, en una transacción DB atómica se:
@@ -65,6 +70,18 @@ export class Sale {
   /** Nombre del cliente (opcional). Se muestra en la comanda de consumo. */
   @Column({ name: 'customer_name', type: 'varchar', length: 100, nullable: true })
   customerName: string | null;
+
+  /**
+   * Estado de la venta. 'open' = cuenta abierta (torneos/jornadas): el stock
+   * ya se descontó pero el cobro queda pendiente. 'paid' = venta cobrada,
+   * flujo tradicional del POS (default, retrocompatible).
+   */
+  @Column({
+    type: 'enum',
+    enum: SaleStatus,
+    default: SaleStatus.PAID,
+  })
+  status: SaleStatus;
 
   /**
    * Clave de idempotencia del frontend (X-Idempotency-Key header).
