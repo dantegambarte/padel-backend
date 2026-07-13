@@ -653,7 +653,7 @@ export class FixedBookingsService {
     const shifts = await this.shiftRepo.find({ where: { isActive: true } });
 
     const matching = shifts.find((s) => {
-      const days = (s.daysOfWeek as number[]).map(Number);
+      const days = s.daysOfWeek.map(Number);
       if (!days.includes(dayOfWeek)) return false;
       const [sh, sm] = s.startTime.split(':').map(Number);
       const [eh, em] = s.endTime.split(':').map(Number);

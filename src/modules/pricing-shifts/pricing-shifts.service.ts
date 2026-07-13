@@ -52,7 +52,9 @@ export class PricingShiftsService {
       isActive: dto.isActive ?? true,
     });
     const saved = await this.repo.save(shift);
-    this.logger.log(`Franja horaria creada: "${saved.name}" (id=${saved.id}) ${saved.startTime}-${saved.endTime}`);
+    this.logger.log(
+      `Franja horaria creada: "${saved.name}" (id=${saved.id}) ${saved.startTime}-${saved.endTime}`,
+    );
     return saved;
   }
 

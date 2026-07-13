@@ -83,7 +83,8 @@ export class CreateFixedBookingDto {
 
   @ApiPropertyOptional({
     example: 3000,
-    description: 'Monto de seña recurrente esperada por transferencia. Si se define, cada booking generado heredará este valor en expectedDepositAmount.',
+    description:
+      'Monto de seña recurrente esperada por transferencia. Si se define, cada booking generado heredará este valor en expectedDepositAmount.',
   })
   @IsOptional()
   @IsNumber()

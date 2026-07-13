@@ -31,9 +31,7 @@ export class PartialUniqueBookingSlot1000000000016 implements MigrationInterface
   public async down(queryRunner: QueryRunner): Promise<void> {
     // Revertir: eliminar el índice parcial y restaurar el constraint completo
     // Nota: esto puede fallar si existen filas canceladas con combinaciones duplicadas.
-    await queryRunner.query(
-      `DROP INDEX IF EXISTS "UQ_booking_court_date_hour_active"`,
-    );
+    await queryRunner.query(`DROP INDEX IF EXISTS "UQ_booking_court_date_hour_active"`);
 
     await queryRunner.query(
       `ALTER TABLE "bookings"
