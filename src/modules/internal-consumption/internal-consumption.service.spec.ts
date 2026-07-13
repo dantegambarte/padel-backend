@@ -60,7 +60,7 @@ function makeConsumption(overrides: Partial<InternalConsumption> = {}): Internal
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,
-  } as InternalConsumption;
+  };
 }
 
 // ─── QueryRunner mock factory ──────────────────────────────────────────────────
@@ -158,7 +158,7 @@ describe('InternalConsumptionService', () => {
     it('creates consumption for teacher → status pending_payment', async () => {
       const product = makeProduct({ stock: 10 });
       const saved = makeConsumption();
-      const { qr, decrementFn, commitFn } = makeQueryRunner(saved);
+      const { qr, saveFn, commitFn } = makeQueryRunner(saved);
 
       productsService.findOne.mockResolvedValue(product);
       dataSource.createQueryRunner.mockReturnValue(qr as any);
@@ -167,11 +167,9 @@ describe('InternalConsumptionService', () => {
       const result = await service.create(dto, ADMIN_USER_ID);
 
       expect(productsService.findOne).toHaveBeenCalledWith(dto.productId);
-      expect(decrementFn).toHaveBeenCalledWith(
+      expect(saveFn).toHaveBeenCalledWith(
         Product,
-        { id: dto.productId },
-        'stock',
-        dto.quantity,
+        expect.objectContaining({ id: dto.productId, stock: 8 }),
       );
       expect(commitFn).toHaveBeenCalled();
       expect(result.status).toBe(InternalConsumptionStatus.PENDING_PAYMENT);
@@ -213,11 +211,11 @@ describe('InternalConsumptionService', () => {
 
     it('rolls back transaction on error', async () => {
       const product = makeProduct({ stock: 10 });
-      const { qr, rollbackFn, decrementFn } = makeQueryRunner();
+      const { qr, rollbackFn, saveFn } = makeQueryRunner();
 
       productsService.findOne.mockResolvedValue(product);
       dataSource.createQueryRunner.mockReturnValue(qr as any);
-      decrementFn.mockRejectedValue(new Error('DB error'));
+      saveFn.mockRejectedValue(new Error('DB error'));
 
       await expect(service.create(dto, ADMIN_USER_ID)).rejects.toThrow('DB error');
       expect(rollbackFn).toHaveBeenCalled();
@@ -323,7 +321,7 @@ describe('InternalConsumptionService', () => {
       const pending = [makeConsumption(), makeConsumption({ id: 'ic-uuid-002' })];
       repo.find.mockResolvedValue(pending);
       repo.findBy.mockResolvedValue(
-        pending.map((c) => ({ ...c, status: InternalConsumptionStatus.PAID })) as any,
+        pending.map((c) => ({ ...c, status: InternalConsumptionStatus.PAID })),
       );
 
       const result = await service.settleTeacherDebt(dto, ADMIN_USER_ID);
@@ -335,9 +333,7 @@ describe('InternalConsumptionService', () => {
     it('settles only specific IDs when consumptionIds provided', async () => {
       const pending = [makeConsumption(), makeConsumption({ id: 'ic-uuid-002' })];
       repo.find.mockResolvedValue(pending);
-      repo.findBy.mockResolvedValue([
-        { ...pending[0], status: InternalConsumptionStatus.PAID },
-      ] as any);
+      repo.findBy.mockResolvedValue([{ ...pending[0], status: InternalConsumptionStatus.PAID }]);
 
       const result = await service.settleTeacherDebt(
         { ...dto, consumptionIds: ['ic-uuid-001'] },

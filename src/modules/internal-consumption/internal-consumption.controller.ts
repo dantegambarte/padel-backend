@@ -19,6 +19,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { UserRole } from '../users/entities/user.entity';
 
 import { InternalConsumptionService } from './internal-consumption.service';
+import { InternalConsumptionConsumerType } from './entities/internal-consumption.entity';
 import { CreateInternalConsumptionDto } from './dto/create-internal-consumption.dto';
 import { QueryInternalConsumptionDto } from './dto/query-internal-consumption.dto';
 import { SettleTeacherDebtDto } from './dto/settle-teacher-debt.dto';
@@ -38,7 +39,11 @@ export class InternalConsumptionController {
     @CurrentUser('id') userId: string,
     @CurrentUser('role') userRole: UserRole,
   ) {
-    if (userRole === UserRole.EMPLOYEE && dto.consumerType === 'staff' && dto.userId !== userId) {
+    if (
+      userRole === UserRole.EMPLOYEE &&
+      dto.consumerType === InternalConsumptionConsumerType.STAFF &&
+      dto.userId !== userId
+    ) {
       throw new ForbiddenException('No podés registrar consumos a nombre de otro empleado.');
     }
     return this.service.create(dto, userId);

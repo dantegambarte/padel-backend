@@ -16,7 +16,6 @@ import { AppModule } from '../../app.module';
 import { DataSource } from 'typeorm';
 import { Product } from '../products/entities/product.entity';
 import { Teacher } from '../teachers/entities/teacher.entity';
-import { User, UserRole } from '../users/entities/user.entity';
 import { InternalConsumption } from './entities/internal-consumption.entity';
 
 describe('POST /internal-consumption (e2e)', () => {
@@ -59,7 +58,10 @@ describe('POST /internal-consumption (e2e)', () => {
     // Login as admin to get JWT
     const loginRes = await request(app.getHttpServer())
       .post('/auth/login')
-      .send({ username: process.env.E2E_ADMIN_USER ?? 'admin', password: process.env.E2E_ADMIN_PASS ?? 'admin123' });
+      .send({
+        username: process.env.E2E_ADMIN_USER ?? 'admin',
+        password: process.env.E2E_ADMIN_PASS ?? 'admin123',
+      });
 
     adminToken = loginRes.body?.access_token;
   });
