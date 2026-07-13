@@ -26,6 +26,7 @@ describe('AuthService', () => {
     findOne: jest.fn(),
     save: jest.fn(),
     increment: jest.fn(),
+    update: jest.fn(),
   };
 
   const jwtService = {
@@ -52,6 +53,7 @@ describe('AuthService', () => {
     jwtService.signAsync.mockResolvedValue('signed_token');
     configService.get.mockReturnValue('test_secret');
     userRepo.increment.mockResolvedValue({});
+    userRepo.update.mockResolvedValue({});
   });
 
   describe('validateUser', () => {
@@ -131,7 +133,7 @@ describe('AuthService', () => {
       await service.login({ username: 'admin', password: 'pass' });
 
       expect(jwtService.signAsync).toHaveBeenCalledWith(
-        expect.objectContaining({ sub: 'user-uuid', sv: 5 }),
+        expect.objectContaining({ sub: 'user-uuid', sv: 6 }),
         expect.any(Object),
       );
     });

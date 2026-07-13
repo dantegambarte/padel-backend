@@ -8,6 +8,7 @@ import { User } from '../users/entities/user.entity';
 import { LoginDto } from './dto/login.dto';
 import { ChangeOwnPasswordDto } from './dto/change-own-password.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
+import type { StringValue } from 'ms';
 
 const BCRYPT_ROUNDS = 10;
 
@@ -89,13 +90,13 @@ export class AuthService {
   private async signTokenPair(payload: JwtPayload): Promise<[string, string]> {
     return Promise.all([
       this.jwtService.signAsync(payload, {
-        secret: this.configService.get<string>('JWT_SECRET'),
-        expiresIn: this.configService.get<string>('JWT_EXPIRES_IN', '8h'),
+        secret: this.configService.get<string>('JWT_SECRET')!,
+        expiresIn: this.configService.get<string>('JWT_EXPIRES_IN', '8h') as StringValue,
         algorithm: 'HS256',
       }),
       this.jwtService.signAsync(payload, {
-        secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
-        expiresIn: this.configService.get<string>('JWT_REFRESH_EXPIRES_IN', '7d'),
+        secret: this.configService.get<string>('JWT_REFRESH_SECRET')!,
+        expiresIn: this.configService.get<string>('JWT_REFRESH_EXPIRES_IN', '7d') as StringValue,
         algorithm: 'HS256',
       }),
     ]);
