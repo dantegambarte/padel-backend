@@ -4,7 +4,9 @@ import { ForbiddenException } from '@nestjs/common';
 import { RolesGuard } from './roles.guard';
 import { UserRole } from '../../modules/users/entities/user.entity';
 
-const mockContext = (user: any, handler: Function = () => {}, cls: Function = () => {}) => ({
+type AnyFn = (...args: unknown[]) => unknown;
+
+const mockContext = (user: any, handler: AnyFn = () => {}, cls: AnyFn = () => {}) => ({
   switchToHttp: () => ({
     getRequest: () => ({ user }),
   }),

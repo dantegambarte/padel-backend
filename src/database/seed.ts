@@ -140,7 +140,7 @@ async function seed() {
   }
 
   const categoryRepo = dataSource.getRepository(ProductCategory);
-  let categories: Record<string, ProductCategory> = {};
+  const categories: Record<string, ProductCategory> = {};
 
   const categoryCount = await categoryRepo.count();
   if (categoryCount === 0) {
@@ -160,7 +160,7 @@ async function seed() {
   }
 
   const productRepo = dataSource.getRepository(Product);
-  let products: Record<string, Product> = {};
+  const products: Record<string, Product> = {};
 
   const productCount = await productRepo.count();
   if (productCount === 0) {
@@ -1065,9 +1065,6 @@ async function seed() {
 
       for (const booking of dayBookings) {
         if (booking.status === BookingStatus.CANCELLED || !booking.payment) continue;
-
-        const itemsTotal = booking.items.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0);
-        const totalAmount = Number(booking.priceAmount) + itemsTotal;
 
         await txRepo.save({
           cashSession: session,

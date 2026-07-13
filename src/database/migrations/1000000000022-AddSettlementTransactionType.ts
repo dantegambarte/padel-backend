@@ -9,7 +9,7 @@ export class AddSettlementTransactionType1000000000022 implements MigrationInter
     );
   }
 
-  async down(queryRunner: QueryRunner): Promise<void> {
+  async down(_queryRunner: QueryRunner): Promise<void> {
     // Postgres does not support removing enum values without recreating the type.
     // To roll back: delete all rows with type='settlement' first, then recreate the enum.
   }

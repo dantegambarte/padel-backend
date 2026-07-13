@@ -42,7 +42,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
       message = isObject
         ? (exceptionResponse as any).message || exception.message
-        : (exceptionResponse as string) || exception.message;
+        : exceptionResponse || exception.message;
 
       errorCode = isObject ? (exceptionResponse as any).errorCode : undefined;
     } else {
@@ -50,12 +50,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
       message = 'Ha ocurrido un error interno. Por favor, contacte al administrador.';
     }
 
-    if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
+    if (status >= Number(HttpStatus.INTERNAL_SERVER_ERROR)) {
       this.logger.error(
         `[${request.method}] ${request.url} → ${status}`,
         exception instanceof Error ? exception.stack : String(exception),
       );
-    } else if (status >= 400 && status !== HttpStatus.UNAUTHORIZED) {
+    } else if (status >= 400 && status !== Number(HttpStatus.UNAUTHORIZED)) {
       this.logger.warn(
         `[${request.method}] ${request.url} → ${status} | ${JSON.stringify(message)}`,
       );

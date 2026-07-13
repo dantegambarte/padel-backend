@@ -4,8 +4,12 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { SystemConfigService } from './system-config.service';
 import { SystemConfig } from './entities/system-config.entity';
 
-const mockConfig = (key: string, value: string): SystemConfig =>
-  ({ key, value, description: '', updatedAt: new Date() }) as SystemConfig;
+const mockConfig = (key: string, value: string): SystemConfig => ({
+  key,
+  value,
+  description: '',
+  updatedAt: new Date(),
+});
 
 describe('SystemConfigService', () => {
   let service: SystemConfigService;
@@ -55,7 +59,7 @@ describe('SystemConfigService', () => {
       configRepo.findOne.mockResolvedValue(config);
       configRepo.save.mockResolvedValue({ ...config, value: '4000' });
 
-      const result = await service.update('precio_estandar', '4000');
+      await service.update('precio_estandar', '4000');
       expect(configRepo.save).toHaveBeenCalledWith(expect.objectContaining({ value: '4000' }));
     });
 
@@ -79,7 +83,7 @@ describe('SystemConfigService', () => {
       configRepo.save.mockResolvedValue({ ...config, value: '5000' });
       configRepo.find.mockResolvedValue([{ ...config, value: '5000' }]);
 
-      const result = await service.bulkUpdate({ precio_estandar: '5000' });
+      await service.bulkUpdate({ precio_estandar: '5000' });
       expect(configRepo.save).toHaveBeenCalledTimes(1);
     });
 

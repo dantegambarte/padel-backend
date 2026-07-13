@@ -17,17 +17,6 @@ import { UserRole } from '../users/entities/user.entity';
 /** Categorías que solo el administrador puede registrar. */
 const ADMIN_ONLY_CATEGORIES = new Set<ExpenseCategory>([ExpenseCategory.SALARY]);
 
-/** Fecha comercial de hoy en Argentina (YYYY-MM-DD, corte a las 3 AM). */
-function businessDateToday(): string {
-  const now = new Date();
-  const ar = new Date(now.toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' }));
-  if (ar.getHours() < 3) ar.setDate(ar.getDate() - 1);
-  const y = ar.getFullYear();
-  const m = String(ar.getMonth() + 1).padStart(2, '0');
-  const d = String(ar.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-
 export interface FindAllOptions {
   role: UserRole;
   from?: string;
@@ -55,7 +44,7 @@ export class ExpensesService {
     createdByUserId: string,
     userRole: UserRole,
   ): Promise<Expense> {
-    if (userRole !== UserRole.ADMIN && ADMIN_ONLY_CATEGORIES.has(dto.category as ExpenseCategory)) {
+    if (userRole !== UserRole.ADMIN && ADMIN_ONLY_CATEGORIES.has(dto.category)) {
       this.logger.warn(
         `Usuario ${createdByUserId} (${userRole}) intentó registrar egreso en categoría restringida: ${dto.category}`,
       );
@@ -171,7 +160,9 @@ export class ExpensesService {
     }
 
     const saved = await this.expenseRepo.save(expense);
-    this.logger.log(`Egreso actualizado: id=${id} categoría=${saved.category} monto=${saved.amount}`);
+    this.logger.log(
+      `Egreso actualizado: id=${id} categoría=${saved.category} monto=${saved.amount}`,
+    );
     return saved;
   }
 

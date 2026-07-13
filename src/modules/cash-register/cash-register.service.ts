@@ -195,7 +195,7 @@ export class CashRegisterService {
    *
    * Debe llamarse dentro de un QueryRunner activo.
    */
-  async getActiveSessionOrFail(queryRunner: QueryRunner, userId: string): Promise<CashSession> {
+  async getActiveSessionOrFail(queryRunner: QueryRunner, _userId: string): Promise<CashSession> {
     await queryRunner.query(`SELECT pg_advisory_xact_lock(abs(hashtext($1)))`, [
       `cash_session:open`,
     ]);
@@ -781,7 +781,6 @@ export class CashRegisterService {
     }
 
     const sessions = rows.map((row) => {
-      const ib = Number(row.initial_balance) || 0;
       const cashIncome = parseFloat(row.cash_income);
       const cashExpenses = parseFloat(row.cash_expense_total);
       const cashExpected = Math.max(0, cashIncome - cashExpenses);
@@ -1063,7 +1062,6 @@ export class CashRegisterService {
     );
 
     const sessions = rows.map((row) => {
-      const ib = Number(row.initial_balance) || 0;
       const cashIncome = parseFloat(row.cash_income ?? '0');
       const cashExpenses = parseFloat(row.cash_expense_total ?? '0');
       const cashExpected = Math.max(0, cashIncome - cashExpenses);
@@ -1376,7 +1374,7 @@ export class CashRegisterService {
     }
 
     const buffer = await wb.xlsx.writeBuffer();
-    return Buffer.from(buffer as ArrayBuffer);
+    return Buffer.from(buffer);
   }
 
   /**
@@ -1587,7 +1585,6 @@ export class CashRegisterService {
     });
 
     rows.forEach((r, i) => {
-      const ib = parseFloat(r.initial_balance ?? '0');
       const ci = parseFloat(r.cash_income);
       const ce = parseFloat(r.cash_expense_total);
       const ef = Math.max(0, ci - ce);
@@ -1673,7 +1670,7 @@ export class CashRegisterService {
     }
 
     const buffer = await wb.xlsx.writeBuffer();
-    return Buffer.from(buffer as ArrayBuffer);
+    return Buffer.from(buffer);
   }
 
   /**

@@ -77,7 +77,7 @@ describe('ProductsService', () => {
   describe('findAll', () => {
     it('retorna solo productos activos por defecto', async () => {
       productRepo.find.mockResolvedValue([mockProduct()]);
-      const result = await service.findAll({});
+      await service.findAll({});
       expect(productRepo.find).toHaveBeenCalledWith(
         expect.objectContaining({ where: expect.objectContaining({ isActive: true }) }),
       );
@@ -108,7 +108,7 @@ describe('ProductsService', () => {
   describe('findFeatured', () => {
     it('retorna solo productos destacados y activos', async () => {
       productRepo.find.mockResolvedValue([mockProduct({ isFeatured: true })]);
-      const result = await service.findFeatured();
+      await service.findFeatured();
       expect(productRepo.find).toHaveBeenCalledWith(
         expect.objectContaining({ where: { isFeatured: true, isActive: true } }),
       );
