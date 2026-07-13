@@ -192,7 +192,7 @@ export class BookingsService {
         throw new BadRequestException('No se permite duplicar un turno que ya ha finalizado.');
       }
       if (!dto.clientName) dto.clientName = source.clientName;
-      if (!dto.priceType) dto.priceType = source.priceType as PriceType;
+      if (!dto.priceType) dto.priceType = source.priceType;
       if (dto.durationMinutes === undefined) dto.durationMinutes = source.durationMinutes;
       if (dto.items === undefined)
         dto.items = source.items.map((i) => ({ productId: i.productId, quantity: i.quantity }));
@@ -439,9 +439,9 @@ export class BookingsService {
 
       let rescheduleFields: { courtId?: string; date?: string; hour?: string } | null = null;
       if (dto.courtId !== undefined || dto.date !== undefined || dto.hour !== undefined) {
-        if (booking.status === BookingStatus.COMPLETED) {
-          throw new BadRequestException(
-            'No se puede mover o modificar la fecha de un turno que ya ha finalizado.',
+        if (booking.status === BookingStatus.COMPLETED && user.role !== UserRole.ADMIN) {
+          throw new ForbiddenException(
+            'Solo los administradores pueden mover turnos que ya han finalizado.',
           );
         }
         if (booking.status === BookingStatus.CANCELLED && user.role !== UserRole.ADMIN) {
@@ -1101,7 +1101,7 @@ export class BookingsService {
     const bookingMin = h * 60 + m;
 
     const matching = shifts.find((s) => {
-      const days = (s.daysOfWeek as number[]).map(Number);
+      const days = s.daysOfWeek.map(Number);
       if (!days.includes(dayOfWeek)) return false;
       const [sh, sm] = s.startTime.split(':').map(Number);
       const [eh, em] = s.endTime.split(':').map(Number);

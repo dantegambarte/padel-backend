@@ -9,8 +9,8 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { BookingsService } from './bookings.service';
 import { Booking, BookingStatus, PriceType } from './entities/booking.entity';
+import { SystemConfig } from '../system-config/entities/system-config.entity';
 import { User, UserRole } from '../users/entities/user.entity';
-import { SystemConfigService } from '../system-config/system-config.service';
 import { CashRegisterService } from '../cash-register/cash-register.service';
 
 const mockAdmin = (): User =>
@@ -48,6 +48,9 @@ describe('BookingsService', () => {
     orderBy: jest.fn().mockReturnThis(),
     addOrderBy: jest.fn().mockReturnThis(),
     setLock: jest.fn().mockReturnThis(),
+    delete: jest.fn().mockReturnThis(),
+    from: jest.fn().mockReturnThis(),
+    execute: jest.fn(),
     getOne: jest.fn(),
     getMany: jest.fn(),
   };
@@ -59,6 +62,7 @@ describe('BookingsService', () => {
 
   const mockManager = {
     findOne: jest.fn(),
+    find: jest.fn().mockResolvedValue([]),
     create: jest.fn(),
     save: jest.fn(),
     update: jest.fn(),
@@ -81,8 +85,8 @@ describe('BookingsService', () => {
     createQueryRunner: jest.fn().mockReturnValue(mockQueryRunner),
   };
 
-  const systemConfigService = {
-    getPrices: jest.fn().mockResolvedValue({ standard: 3000, professor: 2500 }),
+  const systemConfigRepo = {
+    findOne: jest.fn().mockResolvedValue(null),
   };
 
   const cashRegisterService = {
@@ -95,8 +99,8 @@ describe('BookingsService', () => {
       providers: [
         BookingsService,
         { provide: getRepositoryToken(Booking), useValue: bookingRepo },
+        { provide: getRepositoryToken(SystemConfig), useValue: systemConfigRepo },
         { provide: DataSource, useValue: dataSource },
-        { provide: SystemConfigService, useValue: systemConfigService },
         { provide: CashRegisterService, useValue: cashRegisterService },
       ],
     }).compile();
@@ -119,8 +123,12 @@ describe('BookingsService', () => {
     mockQb.orderBy.mockReturnThis();
     mockQb.addOrderBy.mockReturnThis();
     mockQb.setLock.mockReturnThis();
+    mockQb.delete.mockReturnThis();
+    mockQb.from.mockReturnThis();
+    mockQb.execute.mockResolvedValue({});
+    mockManager.find.mockResolvedValue([]);
     mockManager.createQueryBuilder.mockReturnValue(mockQb);
-    systemConfigService.getPrices.mockResolvedValue({ standard: 3000, professor: 2500 });
+    systemConfigRepo.findOne.mockResolvedValue(null);
     cashRegisterService.getActiveSessionOrFail.mockResolvedValue({ id: 'session-uuid' });
     cashRegisterService.registerTransaction.mockResolvedValue({});
   });
