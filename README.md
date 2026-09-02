@@ -36,20 +36,22 @@ Sistema integral de gestión para canchas de pádel. Construido con **NestJS**, 
 
 ## Tecnologías
 
-| Categoría          | Tecnología             |
-| ------------------ | ---------------------- |
-| Framework          | NestJS v10             |
-| Lenguaje           | TypeScript v5          |
-| Base de datos      | PostgreSQL 15          |
-| ORM                | TypeORM v0.3           |
-| Auth               | JWT (HS256) + Passport |
-| Hashing            | bcrypt (10 rounds)     |
-| Validación         | class-validator + Joi  |
-| Documentación      | Swagger / OpenAPI      |
-| Rate limiting      | @nestjs/throttler      |
-| Tareas programadas | @nestjs/schedule       |
-| Exportación        | exceljs                |
-| Proceso prod       | PM2                    |
+| Categoría          | Tecnología                            |
+| ------------------ | ------------------------------------- |
+| Framework          | NestJS v11                            |
+| Lenguaje           | TypeScript v5.3                       |
+| Base de datos      | PostgreSQL 15                         |
+| ORM                | TypeORM v0.3                          |
+| Auth               | JWT (HS256) + Passport                |
+| Hashing            | bcrypt v6 (10 rounds)                 |
+| Validación         | class-validator + Joi                 |
+| Documentación      | Swagger / OpenAPI (@nestjs/swagger 11)|
+| Rate limiting      | @nestjs/throttler v6                  |
+| Tareas programadas | @nestjs/schedule v6                   |
+| Exportación        | exceljs                               |
+| Testing            | Jest 30 + Supertest 7                 |
+| Lint / formato     | ESLint 10 (flat config) + Prettier 3  |
+| Proceso prod       | PM2                                   |
 
 ---
 
@@ -217,6 +219,28 @@ npm run migration:revert
 # Generar nueva migración a partir de cambios en entidades
 npm run migration:generate
 ```
+
+### Seed
+
+```bash
+npm run seed        # datos demo completos
+npm run seed:cash   # solo sesiones de caja
+```
+
+El seed es **idempotente**: se puede correr las veces que haga falta sobre la misma base.
+
+- Los productos demo se upsertean por `name` en lugar de saltarse cuando ya existe cualquier producto — así el stock vuelve a su valor original entre corridas de E2E
+- Si ya hay sesiones de caja pero ninguna abierta, crea una para que los tests de caja y POS no queden bloqueados
+- Las entidades se cargan por glob (`modules/**/entities/*.entity{.ts,.js}`), no por lista manual: una entidad nueva queda incluida sin tocar `seed.ts`
+
+### Calidad de código
+
+```bash
+npm run lint   # ESLint 10 (flat config, eslint.config.mjs) con --fix
+npm test       # Jest 30
+```
+
+El proyecto usa **ESLint flat config** (`eslint.config.mjs`) integrado con Prettier vía `eslint-plugin-prettier` y `eslint-config-prettier`.
 
 ### URLs útiles
 
@@ -830,6 +854,8 @@ PricingShift  (tabla de lookup, sin FK a otras entidades)
 
 Cada usuario tiene un `sessionVersion` en DB. Cada login lo incrementa e incluye ese valor en el JWT. El `JwtStrategy` compara el valor del token con el de la DB en cada request — si no coincide (el usuario inició sesión en otro dispositivo o el admin reseteó la clave), el request se rechaza con `SESSION_OVERRIDDEN`.
 
+> **Excepción en tests:** con `NODE_ENV=test`, `AuthService.login` **no** incrementa `sessionVersion`. Sin esta excepción, cualquier spec de Playwright que hace su propio login invalidaría la sesión compartida del `storageState` y el resto de la suite fallaría con `SESSION_OVERRIDDEN`. En el mismo entorno, el límite del throttler de `POST /auth/login` sube de 5 a 1000 req/min.
+
 ### Guards (aplicados globalmente)
 
 | Guard            | Propósito                                               |
@@ -894,7 +920,7 @@ Antes de decrementar stock en ventas y reservas, se bloquea la fila del producto
 
 ### 8. Sesión única por usuario
 
-`User.sessionVersion` se incrementa en cada login. El JWT payload incluye este valor y el strategy lo valida en cada request, garantizando que un nuevo login invalide automáticamente todos los tokens anteriores del mismo usuario.
+`User.sessionVersion` se incrementa en cada login (salvo con `NODE_ENV=test`, ver [Sesión única](#sesión-única-single-session-enforcement)). El JWT payload incluye este valor y el strategy lo valida en cada request, garantizando que un nuevo login invalide automáticamente todos los tokens anteriores del mismo usuario.
 
 ### 9. Generación automática de turnos fijos
 
