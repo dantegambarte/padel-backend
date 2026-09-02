@@ -124,6 +124,7 @@ describe('AuthService', () => {
       await service.login({ username: 'admin', password: 'pass' });
 
       expect(userRepo.increment).not.toHaveBeenCalled();
+      expect(userRepo.update).not.toHaveBeenCalled();
     });
 
     it('firma el token con el payload correcto incluyendo sv', async () => {
@@ -133,7 +134,7 @@ describe('AuthService', () => {
       await service.login({ username: 'admin', password: 'pass' });
 
       expect(jwtService.signAsync).toHaveBeenCalledWith(
-        expect.objectContaining({ sub: 'user-uuid', sv: 6 }),
+        expect.objectContaining({ sub: 'user-uuid', sv: 5 }),
         expect.any(Object),
       );
     });

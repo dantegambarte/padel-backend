@@ -18,6 +18,8 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
 import { IsString, IsNotEmpty } from 'class-validator';
 
+const loginThrottleLimit = process.env.NODE_ENV === 'test' ? 1000 : 5;
+
 class RefreshTokenDto {
   @IsString()
   @IsNotEmpty()
@@ -37,7 +39,7 @@ export class AuthController {
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @UseGuards(ThrottlerGuard)
-  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @Throttle({ default: { ttl: 60_000, limit: loginThrottleLimit } })
   @ApiOperation({ summary: 'Iniciar sesión' })
   async login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);

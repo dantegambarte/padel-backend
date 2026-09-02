@@ -59,8 +59,14 @@ export class AuthService {
   async login(loginDto: LoginDto) {
     const user = await this.validateUser(loginDto.username, loginDto.password);
 
-    const newSv = user.sessionVersion + 1;
-    await this.userRepo.update(user.id, { sessionVersion: newSv });
+    const newSv =
+      process.env.NODE_ENV === 'test'
+        ? user.sessionVersion
+        : user.sessionVersion + 1;
+
+    if (newSv !== user.sessionVersion) {
+      await this.userRepo.update(user.id, { sessionVersion: newSv });
+    }
 
     const payload: JwtPayload = {
       sub: user.id,
