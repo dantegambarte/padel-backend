@@ -15,6 +15,7 @@ import { ProductsService } from '../products/products.service';
 import { Product } from '../products/entities/product.entity';
 import { CashRegisterService } from '../cash-register/cash-register.service';
 import { Transaction, TransactionType } from '../cash-register/entities/transaction.entity';
+import { asDbError } from '../../common/utils/db-error.util';
 
 @Injectable()
 export class InternalConsumptionService {
@@ -82,7 +83,10 @@ export class InternalConsumptionService {
       return this.findOne(saved.id);
     } catch (error) {
       await queryRunner.rollbackTransaction();
-      this.logger.error(`ROLLBACK en consumo interno: ${error.message}`, error.stack);
+      this.logger.error(
+        `ROLLBACK en consumo interno: ${asDbError(error).message}`,
+        asDbError(error).stack,
+      );
       throw error;
     } finally {
       await queryRunner.release();

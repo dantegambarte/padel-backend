@@ -361,7 +361,7 @@ export class BookingsService {
       return this.findOne(savedBooking.id);
     } catch (error) {
       await queryRunner.rollbackTransaction();
-      this.logger.warn(`ROLLBACK en creación de turno: ${error.message}`);
+      this.logger.warn(`ROLLBACK en creación de turno: ${asDbError(error).message}`);
       this.handleDbError(error);
     } finally {
       await queryRunner.release();
@@ -683,7 +683,10 @@ export class BookingsService {
       return this.findOne(id);
     } catch (error) {
       await queryRunner.rollbackTransaction();
-      this.logger.error(`ROLLBACK en actualización de turno ${id}: ${error.message}`, error.stack);
+      this.logger.error(
+        `ROLLBACK en actualización de turno ${id}: ${asDbError(error).message}`,
+        asDbError(error).stack,
+      );
       this.handleDbError(error);
     } finally {
       await queryRunner.release();
@@ -779,7 +782,9 @@ export class BookingsService {
       return this.findOne(id);
     } catch (error) {
       await queryRunner.rollbackTransaction();
-      this.logger.warn(`ROLLBACK en confirmación de seña (turno ${id}): ${error.message}`);
+      this.logger.warn(
+        `ROLLBACK en confirmación de seña (turno ${id}): ${asDbError(error).message}`,
+      );
       this.handleDbError(error);
     } finally {
       await queryRunner.release();

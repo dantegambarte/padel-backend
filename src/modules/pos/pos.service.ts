@@ -169,7 +169,10 @@ export class PosService {
         );
       }
 
-      this.logger.error(`ROLLBACK en venta POS: ${error.message}`, error.stack);
+      this.logger.error(
+        `ROLLBACK en venta POS: ${asDbError(error).message}`,
+        asDbError(error).stack,
+      );
 
       this.handleDbError(error);
     } finally {
@@ -353,8 +356,8 @@ export class PosService {
       }
 
       this.logger.error(
-        `ROLLBACK al agregar items a cuenta abierta: ${error.message}`,
-        error.stack,
+        `ROLLBACK al agregar items a cuenta abierta: ${asDbError(error).message}`,
+        asDbError(error).stack,
       );
 
       this.handleDbError(error);
@@ -437,7 +440,10 @@ export class PosService {
         );
       }
 
-      this.logger.error(`ROLLBACK al cobrar cuenta abierta: ${error.message}`, error.stack);
+      this.logger.error(
+        `ROLLBACK al cobrar cuenta abierta: ${asDbError(error).message}`,
+        asDbError(error).stack,
+      );
 
       this.handleDbError(error);
     } finally {
