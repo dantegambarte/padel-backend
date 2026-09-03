@@ -19,6 +19,7 @@
     "seed:cash": "ts-node src/database/seed.cash.ts",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "jest",
+    "test:e2e": "jest --testRegex \".*\\.e2e-spec\\.ts$\" --runInBand",
     "audit": "npm audit"
   },
   "dependencies": {
