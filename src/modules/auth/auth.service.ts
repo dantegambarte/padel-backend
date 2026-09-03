@@ -59,10 +59,7 @@ export class AuthService {
   async login(loginDto: LoginDto) {
     const user = await this.validateUser(loginDto.username, loginDto.password);
 
-    const newSv =
-      process.env.NODE_ENV === 'test'
-        ? user.sessionVersion
-        : user.sessionVersion + 1;
+    const newSv = process.env.NODE_ENV === 'test' ? user.sessionVersion : user.sessionVersion + 1;
 
     if (newSv !== user.sessionVersion) {
       await this.userRepo.update(user.id, { sessionVersion: newSv });

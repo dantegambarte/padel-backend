@@ -268,11 +268,9 @@ export class CashRegisterService {
       bookingPriceAmount: string | null;
       saleTotal: string | null;
       bookingItems:
-        | { productName: string; quantity: number; unitPrice: number; total: number }[]
-        | null;
+        { productName: string; quantity: number; unitPrice: number; total: number }[] | null;
       saleItems:
-        | { productName: string; quantity: number; unitPrice: number; total: number }[]
-        | null;
+        { productName: string; quantity: number; unitPrice: number; total: number }[] | null;
       expenseCategory: string | null;
     }[];
     isOpen: boolean;

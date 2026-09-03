@@ -29,7 +29,10 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
           throw new UnauthorizedException(parsed);
         }
       } catch {
-        console.error('JwtAuthGuard.handleRequest: error parsing UnauthorizedException message:', err);
+        console.error(
+          'JwtAuthGuard.handleRequest: error parsing UnauthorizedException message:',
+          err,
+        );
       }
       throw err;
     }
