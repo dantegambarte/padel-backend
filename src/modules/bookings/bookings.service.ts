@@ -8,7 +8,8 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, IsNull, Repository } from 'typeorm';
+import { DataSource, In, IsNull, QueryRunner, Repository } from 'typeorm';
+import { asDbError } from '../../common/utils/db-error.util';
 
 import { SystemConfig } from '../system-config/entities/system-config.entity';
 import { Booking, BookingStatus, PriceType } from './entities/booking.entity';
@@ -851,7 +852,7 @@ export class BookingsService {
    */
   private async processItems(
     items: { productId: string; quantity: number }[],
-    queryRunner: any,
+    queryRunner: QueryRunner,
     existingItems: { productId: string; quantity: number }[] = [],
   ): Promise<{ productId: string; quantity: number; unitPrice: number }[]> {
     const result: { productId: string; quantity: number; unitPrice: number }[] = [];
@@ -908,7 +909,7 @@ export class BookingsService {
    * Los productos de categoría "Alquileres" se omiten.
    * Lanza BadRequestException si algún producto ya no tiene stock suficiente.
    */
-  private async commitStock(bookingId: string, queryRunner: any): Promise<void> {
+  private async commitStock(bookingId: string, queryRunner: QueryRunner): Promise<void> {
     const bookingWithItems = await queryRunner.manager.findOne(Booking, {
       where: { id: bookingId },
       relations: ['items'],
@@ -992,7 +993,7 @@ export class BookingsService {
     hour: string,
     isTeacherIncluded: boolean,
     duration: number,
-    queryRunner: any,
+    queryRunner: QueryRunner,
   ): Promise<{ amount: number; shiftName: string; teacherRate: number | null }> {
     const [year, month, day] = date.split('-').map(Number);
     const dayOfWeek = new Date(year, month - 1, day).getDay();
@@ -1116,25 +1117,27 @@ export class BookingsService {
   }
 
   /** Convierte errores de base de datos en excepciones HTTP apropiadas. */
-  private handleDbError(error: any): never {
-    if (error?.code === '23505') {
+  private handleDbError(error: unknown): never {
+    const dbError = asDbError(error);
+
+    if (dbError.code === '23505') {
       throw new ConflictException(
         'Ese horario ya fue reservado por otro usuario. Por favor recargue la agenda.',
       );
     }
 
-    if (error?.code === '23514') {
+    if (dbError.code === '23514') {
       throw new BadRequestException('Operación inválida: se intentó dejar stock negativo.');
     }
 
-    if (error?.getStatus) {
+    if (dbError.getStatus) {
       throw error;
     }
 
     this.logger.error('Error de base de datos no controlado:', error);
-    this.logger.error('Stack:', error?.stack);
+    this.logger.error('Stack:', dbError.stack);
     throw new InternalServerErrorException(
-      `Error interno: ${error?.message ?? 'desconocido'} (code: ${error?.code ?? 'n/a'})`,
+      `Error interno: ${dbError.message ?? 'desconocido'} (code: ${dbError.code ?? 'n/a'})`,
     );
   }
 }

@@ -7,7 +7,8 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, QueryRunner, Repository } from 'typeorm';
+import { asDbError } from '../../common/utils/db-error.util';
 
 import { Sale, SaleStatus } from './entities/sale.entity';
 import { SaleItem } from './entities/sale-item.entity';
@@ -194,7 +195,7 @@ export class PosService {
    */
   private async resolveItemsWithLock(
     items: SaleItemInputDto[],
-    queryRunner: any,
+    queryRunner: QueryRunner,
   ): Promise<
     {
       productId: string;
@@ -445,12 +446,14 @@ export class PosService {
   }
 
   /** Convierte errores de base de datos en excepciones HTTP apropiadas. */
-  private handleDbError(error: any): never {
-    if (error?.code === '23514') {
+  private handleDbError(error: unknown): never {
+    const dbError = asDbError(error);
+
+    if (dbError.code === '23514') {
       throw new BadRequestException('Stock insuficiente detectado por la base de datos.');
     }
 
-    if (error?.getStatus) {
+    if (dbError.getStatus) {
       throw error;
     }
 
