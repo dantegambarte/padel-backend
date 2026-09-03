@@ -39,7 +39,7 @@ Sistema integral de gestión para canchas de pádel. Construido con **NestJS**, 
 | Categoría          | Tecnología                            |
 | ------------------ | ------------------------------------- |
 | Framework          | NestJS v11                            |
-| Lenguaje           | TypeScript v5.3                       |
+| Lenguaje           | TypeScript ^5.9                       |
 | Base de datos      | PostgreSQL 15                         |
 | ORM                | TypeORM v0.3                          |
 | Auth               | JWT (HS256) + Passport                |
@@ -170,8 +170,8 @@ CORS_ORIGIN=http://localhost:4200
 # Base de datos
 DB_HOST=localhost
 DB_PORT=5432
-DB_USERNAME=postgres
-DB_PASSWORD=postgres
+DB_USERNAME=padel_user
+DB_PASSWORD=padel_secret
 DB_DATABASE=padelsys
 
 # JWT
