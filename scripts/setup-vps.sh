@@ -19,7 +19,7 @@ apt update && apt upgrade -y
 echo -e "\n${YELLOW}Instalando Node.js 20 LTS...${NC}"
 curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
 apt install -y nodejs
-node --version && npm --version
+node --version && npm --version && corepack enable pnpm && pnpm --version
 
 # ── 3. PM2 global ───────────────────────────────────────
 echo -e "\n${YELLOW}Instalando PM2...${NC}"

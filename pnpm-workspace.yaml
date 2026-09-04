@@ -1,0 +1,16 @@
+# Configuración de pnpm. Desde pnpm 11 estas opciones viven acá y NO en el
+# campo `pnpm` del package.json (ahí se ignoran silenciosamente).
+
+# pnpm bloquea los scripts de postinstall por defecto. Hay que habilitar
+# explícitamente los que se necesitan.
+allowBuilds:
+  bcrypt: true # módulo nativo: sin su build, el hash de contraseñas no funciona
+  unrs-resolver: true # binario nativo que usa eslint para resolver imports
+  '@parcel/watcher': true # watcher nativo que usa nest start --watch
+  '@scarf/scarf': false # solo telemetría, no hace falta
+
+# exceljs 4.4.0 pide uuid ^8.3.0, que arrastra una advisory moderate.
+# Forzamos la versión parcheada: exceljs solo usa uuid.v4() sin buffer, y
+# typeorm ya resuelve uuid 11 en este mismo proyecto.
+overrides:
+  uuid: ^11.1.1

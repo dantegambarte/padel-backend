@@ -51,6 +51,7 @@ Sistema integral de gestión para canchas de pádel. Construido con **NestJS**, 
 | Exportación        | exceljs                               |
 | Testing            | Jest 30 + Supertest 7                 |
 | Lint / formato     | ESLint 10 (flat config) + Prettier 3  |
+| Gestor de paquetes | pnpm 11                               |
 | Proceso prod       | PM2                                   |
 
 ---
@@ -191,19 +192,19 @@ Requisito previo: tener **PostgreSQL instalado localmente** y una base de datos 
 
 ```bash
 # 1. Instalar dependencias
-npm install
+pnpm install
 
 # 2. Ejecutar seed inicial (crea usuario admin)
-npm run seed
+pnpm run seed
 
 # 3. Iniciar en modo watch
-npm run start:dev
+pnpm run start:dev
 ```
 
 ### Producción
 
 ```bash
-npm run build
+pnpm run build
 pm2 start ecosystem.config.js
 ```
 
@@ -211,20 +212,20 @@ pm2 start ecosystem.config.js
 
 ```bash
 # Ejecutar todas las migraciones pendientes
-npm run migration:run
+pnpm run migration:run
 
 # Revertir la última migración
-npm run migration:revert
+pnpm run migration:revert
 
 # Generar nueva migración a partir de cambios en entidades
-npm run migration:generate
+pnpm run migration:generate
 ```
 
 ### Seed
 
 ```bash
-npm run seed        # datos demo completos
-npm run seed:cash   # solo sesiones de caja
+pnpm run seed        # datos demo completos
+pnpm run seed:cash   # solo sesiones de caja
 ```
 
 El seed es **idempotente**: se puede correr las veces que haga falta sobre la misma base.
@@ -236,8 +237,8 @@ El seed es **idempotente**: se puede correr las veces que haga falta sobre la mi
 ### Calidad de código
 
 ```bash
-npm run lint   # ESLint 10 (flat config, eslint.config.mjs) con --fix
-npm test       # Jest 30
+pnpm run lint   # ESLint 10 (flat config, eslint.config.mjs) con --fix
+pnpm test       # Jest 30
 ```
 
 El proyecto usa **ESLint flat config** (`eslint.config.mjs`) integrado con Prettier vía `eslint-plugin-prettier` y `eslint-config-prettier`.
