@@ -24,6 +24,7 @@ import {
 } from '@nestjs/swagger';
 
 import { BookingsService } from './bookings.service';
+import { BookingStatus } from './entities/booking.entity';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { UpdateBookingDto } from './dto/update-booking.dto';
 import { QueryBookingsDto } from './dto/query-bookings.dto';
@@ -144,7 +145,7 @@ export class BookingsController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const summary = await this.bookingsService.getTicketSummary(id);
-    const isCompleted = summary.booking.status === 'completed';
+    const isCompleted = summary.booking.status === BookingStatus.COMPLETED;
     res.setHeader('Cache-Control', isCompleted ? 'public, max-age=86400, immutable' : 'no-cache');
     return summary;
   }

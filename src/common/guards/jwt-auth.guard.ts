@@ -28,7 +28,12 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
         if (parsed?.error === 'SESSION_OVERRIDDEN') {
           throw new UnauthorizedException(parsed);
         }
-      } catch {}
+      } catch {
+        console.error(
+          'JwtAuthGuard.handleRequest: error parsing UnauthorizedException message:',
+          err,
+        );
+      }
       throw err;
     }
 

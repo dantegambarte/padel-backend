@@ -1,12 +1,6 @@
-import {
-  Injectable,
-  NotFoundException,
-  ConflictException,
-  BadRequestException,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, ILike, LessThan } from 'typeorm';
+import { Repository, ILike } from 'typeorm';
 import { Product } from './entities/product.entity';
 import { ProductCategory } from './entities/product-category.entity';
 import { CreateProductDto } from './dto/create-product.dto';

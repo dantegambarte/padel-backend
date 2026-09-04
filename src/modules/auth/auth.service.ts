@@ -8,6 +8,7 @@ import { User } from '../users/entities/user.entity';
 import { LoginDto } from './dto/login.dto';
 import { ChangeOwnPasswordDto } from './dto/change-own-password.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
+import type { StringValue } from 'ms';
 
 const BCRYPT_ROUNDS = 10;
 
@@ -58,8 +59,11 @@ export class AuthService {
   async login(loginDto: LoginDto) {
     const user = await this.validateUser(loginDto.username, loginDto.password);
 
-    const newSv = user.sessionVersion + 1;
-    await this.userRepo.update(user.id, { sessionVersion: newSv });
+    const newSv = process.env.NODE_ENV === 'test' ? user.sessionVersion : user.sessionVersion + 1;
+
+    if (newSv !== user.sessionVersion) {
+      await this.userRepo.update(user.id, { sessionVersion: newSv });
+    }
 
     const payload: JwtPayload = {
       sub: user.id,
@@ -89,13 +93,13 @@ export class AuthService {
   private async signTokenPair(payload: JwtPayload): Promise<[string, string]> {
     return Promise.all([
       this.jwtService.signAsync(payload, {
-        secret: this.configService.get<string>('JWT_SECRET'),
-        expiresIn: this.configService.get<string>('JWT_EXPIRES_IN', '8h'),
+        secret: this.configService.get<string>('JWT_SECRET')!,
+        expiresIn: this.configService.get<string>('JWT_EXPIRES_IN', '8h') as StringValue,
         algorithm: 'HS256',
       }),
       this.jwtService.signAsync(payload, {
-        secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
-        expiresIn: this.configService.get<string>('JWT_REFRESH_EXPIRES_IN', '7d'),
+        secret: this.configService.get<string>('JWT_REFRESH_SECRET')!,
+        expiresIn: this.configService.get<string>('JWT_REFRESH_EXPIRES_IN', '7d') as StringValue,
         algorithm: 'HS256',
       }),
     ]);

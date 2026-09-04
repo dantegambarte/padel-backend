@@ -184,7 +184,9 @@ export class TeachersService {
         notes: c.notes,
       };
     });
-    const consumptionsTotal = +mappedConsumptions.reduce((sum, c) => sum + c.totalCost, 0).toFixed(2);
+    const consumptionsTotal = +mappedConsumptions
+      .reduce((sum, c) => sum + c.totalCost, 0)
+      .toFixed(2);
 
     return {
       teacher,

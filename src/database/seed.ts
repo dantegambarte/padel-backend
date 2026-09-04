@@ -43,20 +43,7 @@ const dataSource = new DataSource({
   database: process.env.DB_DATABASE || 'padelsys',
   synchronize: true,
   logging: false,
-  entities: [
-    User,
-    Court,
-    ProductCategory,
-    Product,
-    SystemConfig,
-    Booking,
-    BookingItem,
-    BookingPayment,
-    CashSession,
-    Transaction,
-    Sale,
-    SaleItem,
-  ],
+  entities: [__dirname + '/../modules/**/entities/*.entity{.ts,.js}'],
 });
 
 /** Retorna "YYYY-MM-DD" para hoy + offset de días */
@@ -140,7 +127,7 @@ async function seed() {
   }
 
   const categoryRepo = dataSource.getRepository(ProductCategory);
-  let categories: Record<string, ProductCategory> = {};
+  const categories: Record<string, ProductCategory> = {};
 
   const categoryCount = await categoryRepo.count();
   if (categoryCount === 0) {
@@ -160,99 +147,97 @@ async function seed() {
   }
 
   const productRepo = dataSource.getRepository(Product);
-  let products: Record<string, Product> = {};
+  const products: Record<string, Product> = {};
 
-  const productCount = await productRepo.count();
-  if (productCount === 0) {
-    const saved = await productRepo.save([
-      {
-        name: 'Agua Mineral 500ml',
-        category: categories['Bebidas'],
-        costPrice: 150,
-        salePrice: 300,
-        stock: 48,
-        minStock: 20,
-        isFeatured: true,
-        isActive: true,
-      },
-      {
-        name: 'Pelotas Wilson',
-        category: categories['Accesorios'],
-        costPrice: 800,
-        salePrice: 1200,
-        stock: 25,
-        minStock: 10,
-        isFeatured: true,
-        isActive: true,
-      },
-      {
-        name: 'Gatorade',
-        category: categories['Bebidas'],
-        costPrice: 250,
-        salePrice: 450,
-        stock: 30,
-        minStock: 15,
-        isFeatured: true,
-        isActive: true,
-      },
-      {
-        name: 'Grip HEAD',
-        category: categories['Accesorios'],
-        costPrice: 350,
-        salePrice: 600,
-        stock: 15,
-        minStock: 8,
-        isFeatured: true,
-        isActive: true,
-      },
-      {
-        name: 'Muñequera Nike',
-        category: categories['Indumentaria'],
-        costPrice: 400,
-        salePrice: 700,
-        stock: 12,
-        minStock: 5,
-        isFeatured: false,
-        isActive: true,
-      },
-      {
-        name: 'Toalla Deportiva',
-        category: categories['Indumentaria'],
-        costPrice: 500,
-        salePrice: 850,
-        stock: 8,
-        minStock: 5,
-        isFeatured: false,
-        isActive: true,
-      },
-      {
-        name: 'Red Bull',
-        category: categories['Bebidas'],
-        costPrice: 300,
-        salePrice: 550,
-        stock: 20,
-        minStock: 10,
-        isFeatured: false,
-        isActive: true,
-      },
-      {
-        name: 'Barrita Energética',
-        category: categories['Snacks'],
-        costPrice: 200,
-        salePrice: 350,
-        stock: 35,
-        minStock: 10,
-        isFeatured: false,
-        isActive: true,
-      },
-    ]);
-    saved.forEach((p) => (products[p.name] = p));
-    console.log('✅ 8 Productos creados');
-  } else {
-    const saved = await productRepo.find();
-    saved.forEach((p) => (products[p.name] = p));
-    console.log('⏭️  Productos ya existen, saltando...');
+  const demoProducts = [
+    {
+      name: 'Agua Mineral 500ml',
+      category: categories['Bebidas'],
+      costPrice: 150,
+      salePrice: 300,
+      stock: 48,
+      minStock: 20,
+      isFeatured: true,
+      isActive: true,
+    },
+    {
+      name: 'Pelotas Wilson',
+      category: categories['Accesorios'],
+      costPrice: 800,
+      salePrice: 1200,
+      stock: 25,
+      minStock: 10,
+      isFeatured: true,
+      isActive: true,
+    },
+    {
+      name: 'Gatorade',
+      category: categories['Bebidas'],
+      costPrice: 250,
+      salePrice: 450,
+      stock: 30,
+      minStock: 15,
+      isFeatured: true,
+      isActive: true,
+    },
+    {
+      name: 'Grip HEAD',
+      category: categories['Accesorios'],
+      costPrice: 350,
+      salePrice: 600,
+      stock: 15,
+      minStock: 8,
+      isFeatured: true,
+      isActive: true,
+    },
+    {
+      name: 'Muñequera Nike',
+      category: categories['Indumentaria'],
+      costPrice: 400,
+      salePrice: 700,
+      stock: 12,
+      minStock: 5,
+      isFeatured: false,
+      isActive: true,
+    },
+    {
+      name: 'Toalla Deportiva',
+      category: categories['Indumentaria'],
+      costPrice: 500,
+      salePrice: 850,
+      stock: 8,
+      minStock: 5,
+      isFeatured: false,
+      isActive: true,
+    },
+    {
+      name: 'Red Bull',
+      category: categories['Bebidas'],
+      costPrice: 300,
+      salePrice: 550,
+      stock: 20,
+      minStock: 10,
+      isFeatured: false,
+      isActive: true,
+    },
+    {
+      name: 'Barrita Energética',
+      category: categories['Snacks'],
+      costPrice: 200,
+      salePrice: 350,
+      stock: 35,
+      minStock: 10,
+      isFeatured: false,
+      isActive: true,
+    },
+  ];
+
+  for (const demo of demoProducts) {
+    const existing = await productRepo.findOne({ where: { name: demo.name } });
+    const saved = await productRepo.save({ ...(existing ?? {}), ...demo });
+    products[saved.name] = saved;
   }
+  console.log('✅ Productos demo creados/actualizados');
 
   const configRepo = dataSource.getRepository(SystemConfig);
   const configCount = await configRepo.count();
@@ -1040,7 +1025,20 @@ async function seed() {
 
   const sessionCount = await sessionRepo.count();
   if (sessionCount > 0) {
-    console.log('⏭️  Sesiones de caja ya existen, saltando...');
+    const openSession = await sessionRepo.findOne({ where: { status: CashSessionStatus.OPEN } });
+    if (!openSession) {
+      await sessionRepo.save({
+        date: dateStr(0),
+        status: CashSessionStatus.OPEN,
+        openedByUser: employee1,
+        openedByUserId: employee1.id,
+        initialBalance: 25000,
+        notes: 'Sesión abierta por seed E2E',
+      });
+      console.log('✅ Sesión de caja abierta creada para E2E');
+    } else {
+      console.log('⏭️  Sesión de caja abierta ya existe, saltando...');
+    }
   } else {
     for (let d = -6; d <= -1; d++) {
       const date = dateStr(d);
@@ -1065,9 +1063,6 @@ async function seed() {
 
       for (const booking of dayBookings) {
         if (booking.status === BookingStatus.CANCELLED || !booking.payment) continue;
-
-        const itemsTotal = booking.items.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0);
-        const totalAmount = Number(booking.priceAmount) + itemsTotal;
 
         await txRepo.save({
           cashSession: session,

@@ -8,7 +8,8 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, IsNull, Repository } from 'typeorm';
+import { DataSource, In, IsNull, QueryRunner, Repository } from 'typeorm';
+import { asDbError } from '../../common/utils/db-error.util';
 
 import { SystemConfig } from '../system-config/entities/system-config.entity';
 import { Booking, BookingStatus, PriceType } from './entities/booking.entity';
@@ -192,7 +193,7 @@ export class BookingsService {
         throw new BadRequestException('No se permite duplicar un turno que ya ha finalizado.');
       }
       if (!dto.clientName) dto.clientName = source.clientName;
-      if (!dto.priceType) dto.priceType = source.priceType as PriceType;
+      if (!dto.priceType) dto.priceType = source.priceType;
       if (dto.durationMinutes === undefined) dto.durationMinutes = source.durationMinutes;
       if (dto.items === undefined)
         dto.items = source.items.map((i) => ({ productId: i.productId, quantity: i.quantity }));
@@ -360,7 +361,7 @@ export class BookingsService {
       return this.findOne(savedBooking.id);
     } catch (error) {
       await queryRunner.rollbackTransaction();
-      this.logger.warn(`ROLLBACK en creación de turno: ${error.message}`);
+      this.logger.warn(`ROLLBACK en creación de turno: ${asDbError(error).message}`);
       this.handleDbError(error);
     } finally {
       await queryRunner.release();
@@ -439,9 +440,9 @@ export class BookingsService {
 
       let rescheduleFields: { courtId?: string; date?: string; hour?: string } | null = null;
       if (dto.courtId !== undefined || dto.date !== undefined || dto.hour !== undefined) {
-        if (booking.status === BookingStatus.COMPLETED) {
-          throw new BadRequestException(
-            'No se puede mover o modificar la fecha de un turno que ya ha finalizado.',
+        if (booking.status === BookingStatus.COMPLETED && user.role !== UserRole.ADMIN) {
+          throw new ForbiddenException(
+            'Solo los administradores pueden mover turnos que ya han finalizado.',
           );
         }
         if (booking.status === BookingStatus.CANCELLED && user.role !== UserRole.ADMIN) {
@@ -682,7 +683,10 @@ export class BookingsService {
       return this.findOne(id);
     } catch (error) {
       await queryRunner.rollbackTransaction();
-      this.logger.error(`ROLLBACK en actualización de turno ${id}: ${error.message}`, error.stack);
+      this.logger.error(
+        `ROLLBACK en actualización de turno ${id}: ${asDbError(error).message}`,
+        asDbError(error).stack,
+      );
       this.handleDbError(error);
     } finally {
       await queryRunner.release();
@@ -778,7 +782,9 @@ export class BookingsService {
       return this.findOne(id);
     } catch (error) {
       await queryRunner.rollbackTransaction();
-      this.logger.warn(`ROLLBACK en confirmación de seña (turno ${id}): ${error.message}`);
+      this.logger.warn(
+        `ROLLBACK en confirmación de seña (turno ${id}): ${asDbError(error).message}`,
+      );
       this.handleDbError(error);
     } finally {
       await queryRunner.release();
@@ -851,7 +857,7 @@ export class BookingsService {
    */
   private async processItems(
     items: { productId: string; quantity: number }[],
-    queryRunner: any,
+    queryRunner: QueryRunner,
     existingItems: { productId: string; quantity: number }[] = [],
   ): Promise<{ productId: string; quantity: number; unitPrice: number }[]> {
     const result: { productId: string; quantity: number; unitPrice: number }[] = [];
@@ -908,7 +914,7 @@ export class BookingsService {
    * Los productos de categoría "Alquileres" se omiten.
    * Lanza BadRequestException si algún producto ya no tiene stock suficiente.
    */
-  private async commitStock(bookingId: string, queryRunner: any): Promise<void> {
+  private async commitStock(bookingId: string, queryRunner: QueryRunner): Promise<void> {
     const bookingWithItems = await queryRunner.manager.findOne(Booking, {
       where: { id: bookingId },
       relations: ['items'],
@@ -992,7 +998,7 @@ export class BookingsService {
     hour: string,
     isTeacherIncluded: boolean,
     duration: number,
-    queryRunner: any,
+    queryRunner: QueryRunner,
   ): Promise<{ amount: number; shiftName: string; teacherRate: number | null }> {
     const [year, month, day] = date.split('-').map(Number);
     const dayOfWeek = new Date(year, month - 1, day).getDay();
@@ -1101,7 +1107,7 @@ export class BookingsService {
     const bookingMin = h * 60 + m;
 
     const matching = shifts.find((s) => {
-      const days = (s.daysOfWeek as number[]).map(Number);
+      const days = s.daysOfWeek.map(Number);
       if (!days.includes(dayOfWeek)) return false;
       const [sh, sm] = s.startTime.split(':').map(Number);
       const [eh, em] = s.endTime.split(':').map(Number);
@@ -1116,25 +1122,27 @@ export class BookingsService {
   }
 
   /** Convierte errores de base de datos en excepciones HTTP apropiadas. */
-  private handleDbError(error: any): never {
-    if (error?.code === '23505') {
+  private handleDbError(error: unknown): never {
+    const dbError = asDbError(error);
+
+    if (dbError.code === '23505') {
       throw new ConflictException(
         'Ese horario ya fue reservado por otro usuario. Por favor recargue la agenda.',
       );
     }
 
-    if (error?.code === '23514') {
+    if (dbError.code === '23514') {
       throw new BadRequestException('Operación inválida: se intentó dejar stock negativo.');
     }
 
-    if (error?.getStatus) {
+    if (dbError.getStatus) {
       throw error;
     }
 
     this.logger.error('Error de base de datos no controlado:', error);
-    this.logger.error('Stack:', error?.stack);
+    this.logger.error('Stack:', dbError.stack);
     throw new InternalServerErrorException(
-      `Error interno: ${error?.message ?? 'desconocido'} (code: ${error?.code ?? 'n/a'})`,
+      `Error interno: ${dbError.message ?? 'desconocido'} (code: ${dbError.code ?? 'n/a'})`,
     );
   }
 }

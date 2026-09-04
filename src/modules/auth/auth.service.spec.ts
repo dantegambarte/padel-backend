@@ -26,6 +26,7 @@ describe('AuthService', () => {
     findOne: jest.fn(),
     save: jest.fn(),
     increment: jest.fn(),
+    update: jest.fn(),
   };
 
   const jwtService = {
@@ -52,6 +53,7 @@ describe('AuthService', () => {
     jwtService.signAsync.mockResolvedValue('signed_token');
     configService.get.mockReturnValue('test_secret');
     userRepo.increment.mockResolvedValue({});
+    userRepo.update.mockResolvedValue({});
   });
 
   describe('validateUser', () => {
@@ -122,6 +124,7 @@ describe('AuthService', () => {
       await service.login({ username: 'admin', password: 'pass' });
 
       expect(userRepo.increment).not.toHaveBeenCalled();
+      expect(userRepo.update).not.toHaveBeenCalled();
     });
 
     it('firma el token con el payload correcto incluyendo sv', async () => {

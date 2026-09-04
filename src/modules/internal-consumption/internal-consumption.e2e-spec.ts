@@ -7,7 +7,11 @@
  *   - At least one Product and one Teacher seeded (see beforeAll).
  *
  * Run with:
- *   npx jest --testPathPattern=internal-consumption.e2e-spec --runInBand
+ *   npm run test:e2e -- --testPathPatterns=internal-consumption.e2e-spec
+ *
+ * Nota: el `testRegex` por defecto de jest.config.js (`.*\.spec\.ts$`) no matchea
+ * los archivos `*.e2e-spec.ts`, por eso hace falta el script `test:e2e`, que trae
+ * su propio regex. El flag es `--testPathPatterns` (en plural) desde Jest 30.
  */
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
@@ -16,13 +20,13 @@ import { AppModule } from '../../app.module';
 import { DataSource } from 'typeorm';
 import { Product } from '../products/entities/product.entity';
 import { Teacher } from '../teachers/entities/teacher.entity';
-import { User, UserRole } from '../users/entities/user.entity';
 import { InternalConsumption } from './entities/internal-consumption.entity';
 
 describe('POST /internal-consumption (e2e)', () => {
   let app: INestApplication;
   let ds: DataSource;
   let adminToken: string;
+  let adminUserId: string;
   let productId: string;
   let teacherId: string;
 
@@ -32,6 +36,9 @@ describe('POST /internal-consumption (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    // main.ts aplica este prefijo en el bootstrap real; el test debe replicarlo
+    // o todas las requests pegan a rutas inexistentes.
+    app.setGlobalPrefix('api/v1');
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
     await app.init();
 
@@ -58,10 +65,14 @@ describe('POST /internal-consumption (e2e)', () => {
 
     // Login as admin to get JWT
     const loginRes = await request(app.getHttpServer())
-      .post('/auth/login')
-      .send({ username: process.env.E2E_ADMIN_USER ?? 'admin', password: process.env.E2E_ADMIN_PASS ?? 'admin123' });
+      .post('/api/v1/auth/login')
+      .send({
+        username: process.env.E2E_ADMIN_USER ?? 'admin',
+        password: process.env.E2E_ADMIN_PASS ?? 'admin123',
+      });
 
-    adminToken = loginRes.body?.access_token;
+    adminToken = loginRes.body?.accessToken;
+    adminUserId = loginRes.body?.user?.id;
   });
 
   afterAll(async () => {
@@ -76,13 +87,15 @@ describe('POST /internal-consumption (e2e)', () => {
     const before = await ds.getRepository(Product).findOneBy({ id: productId });
 
     const res = await request(app.getHttpServer())
-      .post('/internal-consumption')
+      .post('/api/v1/internal-consumption')
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
         productId,
         quantity: 3,
         consumerType: 'staff',
-        userId: null, // nullable in this test
+        // El DTO exige userId cuando consumerType es staff (ver
+        // CreateInternalConsumptionDto). Usamos el id del admin logueado.
+        userId: adminUserId,
         date: '2026-04-15',
       });
 
@@ -96,7 +109,7 @@ describe('POST /internal-consumption (e2e)', () => {
 
   it('201 — creates teacher consumption → pending_payment', async () => {
     const res = await request(app.getHttpServer())
-      .post('/internal-consumption')
+      .post('/api/v1/internal-consumption')
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
         productId,
@@ -113,7 +126,7 @@ describe('POST /internal-consumption (e2e)', () => {
 
   it('400 — rejects insufficient stock', async () => {
     const res = await request(app.getHttpServer())
-      .post('/internal-consumption')
+      .post('/api/v1/internal-consumption')
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
         productId,
@@ -127,7 +140,7 @@ describe('POST /internal-consumption (e2e)', () => {
 
   it('401 — rejects unauthenticated request', async () => {
     const res = await request(app.getHttpServer())
-      .post('/internal-consumption')
+      .post('/api/v1/internal-consumption')
       .send({ productId, quantity: 1, consumerType: 'staff', date: '2026-04-15' });
 
     expect(res.status).toBe(401);

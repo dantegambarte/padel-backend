@@ -66,7 +66,9 @@ export class CourtsService {
       .where('court.id = :id', { id })
       .getCount();
     if (bookingCount > 0) {
-      this.logger.warn(`Intento de eliminar cancha "${court.name}" (id=${id}) con ${bookingCount} turno(s) asociado(s)`);
+      this.logger.warn(
+        `Intento de eliminar cancha "${court.name}" (id=${id}) con ${bookingCount} turno(s) asociado(s)`,
+      );
       throw new BadRequestException(
         'No se puede eliminar la cancha porque tiene turnos asociados. Te recomendamos inactivarla.',
       );

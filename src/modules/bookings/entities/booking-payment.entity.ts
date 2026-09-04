@@ -52,13 +52,15 @@ export class BookingPayment {
   amountTransfer: number;
 
   @Column({ name: 'player_payment_details', type: 'jsonb', nullable: true, default: null })
-  playerPaymentDetails: {
-    method: 'cash' | 'transfer';
-    amount: number;
-    courtAmount: number;
-    consumablesTotal: number;
-    consumableItems: { name: string; unitPrice: number; qty: number }[];
-  }[] | null;
+  playerPaymentDetails:
+    | {
+        method: 'cash' | 'transfer';
+        amount: number;
+        courtAmount: number;
+        consumablesTotal: number;
+        consumableItems: { name: string; unitPrice: number; qty: number }[];
+      }[]
+    | null;
 
   @CreateDateColumn({ name: 'paid_at' })
   paidAt: Date;

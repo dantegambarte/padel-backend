@@ -217,7 +217,7 @@ describe('CashRegisterService', () => {
 
     it('usa getDefaultCashFund del systemConfigService como fondo inicial', async () => {
       systemConfigService.getDefaultCashFund.mockResolvedValue(2500);
-      const { newSession } = setupHappyPathQr({ initialBalance: 2500 });
+      setupHappyPathQr({ initialBalance: 2500 });
 
       const result = await service.openSession({ initialBalance: 9999 }, mockUser());
 
@@ -258,7 +258,9 @@ describe('CashRegisterService', () => {
     it('puede abrir una segunda sesión en el mismo día si no hay jornada cerrada', async () => {
       const { qr } = setupHappyPathQr();
 
-      await expect(service.openSession({ initialBalance: 1000 }, mockUser())).resolves.toBeDefined();
+      await expect(
+        service.openSession({ initialBalance: 1000 }, mockUser()),
+      ).resolves.toBeDefined();
       expect(qr.manager.delete).not.toHaveBeenCalled();
     });
 
@@ -365,7 +367,9 @@ describe('CashRegisterService', () => {
       const session = mockSession();
       sessionRepo.findOne.mockResolvedValue(session);
       // cashExpectedInDrawer = 5000 + 5000 - 0 = 10000 → difference = 10500 - 10000 = 500
-      dataSource.query.mockResolvedValue([{ cash_income: '5000', cash_expense_total: '0', transfer_total: '2000' }]);
+      dataSource.query.mockResolvedValue([
+        { cash_income: '5000', cash_expense_total: '0', transfer_total: '2000' },
+      ]);
       sessionRepo.save.mockResolvedValue({ ...session, status: CashSessionStatus.CLOSED });
 
       const result = await service.closeSession({ cashCounted: 10500 }, mockUser());
@@ -380,7 +384,9 @@ describe('CashRegisterService', () => {
     it('retorna "exact" cuando lo contado coincide exactamente con lo esperado', async () => {
       sessionRepo.findOne.mockResolvedValue(mockSession());
       // cashExpectedInDrawer = 5000 + 5000 - 0 = 10000 → difference = 10000 - 10000 = 0
-      dataSource.query.mockResolvedValue([{ cash_income: '5000', cash_expense_total: '0', transfer_total: '0' }]);
+      dataSource.query.mockResolvedValue([
+        { cash_income: '5000', cash_expense_total: '0', transfer_total: '0' },
+      ]);
       sessionRepo.save.mockResolvedValue({});
 
       const result = await service.closeSession({ cashCounted: 10000 }, mockUser());
@@ -391,7 +397,9 @@ describe('CashRegisterService', () => {
     it('retorna "shortage" cuando hay faltante de caja', async () => {
       sessionRepo.findOne.mockResolvedValue(mockSession());
       // cashExpectedInDrawer = 5000 + 5000 - 0 = 10000 → difference = 9000 - 10000 = -1000
-      dataSource.query.mockResolvedValue([{ cash_income: '5000', cash_expense_total: '0', transfer_total: '0' }]);
+      dataSource.query.mockResolvedValue([
+        { cash_income: '5000', cash_expense_total: '0', transfer_total: '0' },
+      ]);
       sessionRepo.save.mockResolvedValue({});
 
       const result = await service.closeSession({ cashCounted: 9000 }, mockUser());
@@ -402,7 +410,9 @@ describe('CashRegisterService', () => {
     it('retorna transferTotal y dayTotal correctamente en el resumen', async () => {
       sessionRepo.findOne.mockResolvedValue(mockSession());
       // cashExpected = 5000 - 0 = 5000 ; transferTotal = 3000 ; dayTotal = 8000
-      dataSource.query.mockResolvedValue([{ cash_income: '5000', cash_expense_total: '0', transfer_total: '3000' }]);
+      dataSource.query.mockResolvedValue([
+        { cash_income: '5000', cash_expense_total: '0', transfer_total: '3000' },
+      ]);
       sessionRepo.save.mockResolvedValue({});
 
       const result = await service.closeSession({ cashCounted: 10000 }, mockUser());
@@ -499,8 +509,8 @@ describe('CashRegisterService', () => {
       cash_counted: '10000',
       difference: '500',
       opened_by_name: 'Admin',
-      cash_income: '9500',       // campo real del SQL
-      cash_expense_total: '0',   // campo real del SQL
+      cash_income: '9500', // campo real del SQL
+      cash_expense_total: '0', // campo real del SQL
       transfer_total: '2000',
     };
 

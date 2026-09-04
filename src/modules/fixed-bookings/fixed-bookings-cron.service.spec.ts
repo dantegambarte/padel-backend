@@ -4,7 +4,9 @@ import { FixedBookingsService } from './fixed-bookings.service';
 
 describe('FixedBookingsCronService', () => {
   let cronService: FixedBookingsCronService;
-  let fixedBookingsService: jest.Mocked<Pick<FixedBookingsService, 'extendAllActive' | 'syncPrices'>>;
+  let fixedBookingsService: jest.Mocked<
+    Pick<FixedBookingsService, 'extendAllActive' | 'syncPrices'>
+  >;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -13,9 +15,9 @@ describe('FixedBookingsCronService', () => {
         {
           provide: FixedBookingsService,
           useValue: {
-          extendAllActive: jest.fn().mockResolvedValue(undefined),
-          syncPrices: jest.fn().mockResolvedValue({ updated: 0 }),
-        },
+            extendAllActive: jest.fn().mockResolvedValue(undefined),
+            syncPrices: jest.fn().mockResolvedValue({ updated: 0 }),
+          },
         },
       ],
     }).compile();

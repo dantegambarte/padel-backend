@@ -20,7 +20,11 @@ import { Type } from 'class-transformer';
 import { PriceType } from '../entities/booking.entity';
 
 export class BookingItemInputDto {
-  @ApiPropertyOptional({ example: 'uuid-del-booking-item', description: 'ID de la fila existente en booking_items. Si se envía, se hace UPDATE; si no, INSERT.' })
+  @ApiPropertyOptional({
+    example: 'uuid-del-booking-item',
+    description:
+      'ID de la fila existente en booking_items. Si se envía, se hace UPDATE; si no, INSERT.',
+  })
   @IsOptional()
   @IsUUID('4', { message: 'id debe ser un UUID válido.' })
   id?: string;

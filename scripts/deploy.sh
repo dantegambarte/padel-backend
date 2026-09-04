@@ -53,17 +53,17 @@ echo -e "${GREEN}✓ Código actualizado${NC}"
 
 # ── 3. Instalar dependencias de producción ──────────────
 echo -e "\n${YELLOW}[3/7] Instalando dependencias...${NC}"
-npm ci --omit=dev
+pnpm install --frozen-lockfile --prod
 echo -e "${GREEN}✓ Dependencias instaladas${NC}"
 
 # ── 4. Compilar TypeScript ──────────────────────────────
 echo -e "\n${YELLOW}[4/7] Compilando TypeScript...${NC}"
-npm run build
+pnpm run build
 echo -e "${GREEN}✓ Build completado en /dist${NC}"
 
 # ── 5. Ejecutar migraciones ──────────────────────────────
 echo -e "\n${YELLOW}[5/7] Ejecutando migraciones de base de datos...${NC}"
-npm run migration:run
+pnpm run migration:run
 echo -e "${GREEN}✓ Migraciones aplicadas${NC}"
 
 # ── 6. Reiniciar con PM2 ─────────────────────────────────

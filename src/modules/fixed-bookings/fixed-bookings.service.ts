@@ -16,6 +16,7 @@ import { PricingShift } from '../pricing-shifts/entities/pricing-shift.entity';
 
 import { CreateFixedBookingDto } from './dto/create-fixed-booking.dto';
 import { UpdateFixedBookingDto } from './dto/update-fixed-booking.dto';
+import { asDbError } from '../../common/utils/db-error.util';
 
 /** Semanas hacia adelante para las que se generan Bookings individuales al crear/activar. */
 const WEEKS_TO_GENERATE = 8;
@@ -334,8 +335,8 @@ export class FixedBookingsService {
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(
-        `ROLLBACK en actualización del turno fijo ${id}: ${error.message}`,
-        error.stack,
+        `ROLLBACK en actualización del turno fijo ${id}: ${asDbError(error).message}`,
+        asDbError(error).stack,
       );
       throw error;
     } finally {
@@ -431,7 +432,10 @@ export class FixedBookingsService {
       return { deleted: withoutPayment.length, preserved: withPayment };
     } catch (error) {
       await queryRunner.rollbackTransaction();
-      this.logger.error(`ROLLBACK en borrado de turno fijo ${id}: ${error.message}`, error.stack);
+      this.logger.error(
+        `ROLLBACK en borrado de turno fijo ${id}: ${asDbError(error).message}`,
+        asDbError(error).stack,
+      );
       throw error;
     } finally {
       await queryRunner.release();
@@ -653,7 +657,7 @@ export class FixedBookingsService {
     const shifts = await this.shiftRepo.find({ where: { isActive: true } });
 
     const matching = shifts.find((s) => {
-      const days = (s.daysOfWeek as number[]).map(Number);
+      const days = s.daysOfWeek.map(Number);
       if (!days.includes(dayOfWeek)) return false;
       const [sh, sm] = s.startTime.split(':').map(Number);
       const [eh, em] = s.endTime.split(':').map(Number);

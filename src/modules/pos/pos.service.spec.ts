@@ -225,17 +225,12 @@ describe('PosService', () => {
           status: SaleStatus.OPEN,
           customerName: 'Lu',
           items: [{ productId: 'p1', quantity: 1 }],
-        } as any,
+        },
         mockUser(),
       );
 
       expect(result.status).toBe(SaleStatus.OPEN);
-      expect(mockManager.decrement).toHaveBeenCalledWith(
-        Product,
-        { id: 'p1' },
-        'stock',
-        1,
-      );
+      expect(mockManager.decrement).toHaveBeenCalledWith(Product, { id: 'p1' }, 'stock', 1);
       expect(cashRegisterService.registerTransaction).not.toHaveBeenCalled();
     });
 
@@ -282,15 +277,10 @@ describe('PosService', () => {
 
       const result = await service.addItems('sale-uuid', {
         items: [{ productId: 'p2', quantity: 1 }],
-      } as any);
+      });
 
       expect(mockManager.decrement).toHaveBeenCalledWith(Product, { id: 'p2' }, 'stock', 1);
-      expect(mockManager.increment).toHaveBeenCalledWith(
-        Sale,
-        { id: 'sale-uuid' },
-        'total',
-        350,
-      );
+      expect(mockManager.increment).toHaveBeenCalledWith(Sale, { id: 'sale-uuid' }, 'total', 350);
       expect(result).toBeDefined();
     });
 
@@ -340,26 +330,26 @@ describe('PosService', () => {
     it('lanza NotFoundException si la cuenta no existe', async () => {
       mockManager.findOne.mockResolvedValueOnce(null);
 
-      await expect(
-        service.pay('missing', { amountCash: 100 }, mockUser()),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.pay('missing', { amountCash: 100 }, mockUser())).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('lanza BadRequestException si la venta ya fue pagada', async () => {
       mockManager.findOne.mockResolvedValueOnce(mockSale({ status: SaleStatus.PAID }));
 
-      await expect(
-        service.pay('sale-uuid', { amountCash: 100 }, mockUser()),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.pay('sale-uuid', { amountCash: 100 }, mockUser())).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('lanza BadRequestException si el pago no cubre el total', async () => {
       const openSale = mockSale({ id: 'sale-uuid', status: SaleStatus.OPEN, total: 1000 });
       mockManager.findOne.mockResolvedValueOnce(openSale);
 
-      await expect(
-        service.pay('sale-uuid', { amountCash: 100 }, mockUser()),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.pay('sale-uuid', { amountCash: 100 }, mockUser())).rejects.toThrow(
+        BadRequestException,
+      );
     });
   });
 });

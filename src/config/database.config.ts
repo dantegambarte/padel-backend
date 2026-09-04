@@ -15,6 +15,6 @@ export const databaseConfig = (configService: ConfigService): TypeOrmModuleOptio
 
   entities: [__dirname + '/../modules/**/entities/*.entity{.ts,.js}'],
   migrations: [__dirname + '/../database/migrations/*{.ts,.js}'],
-  
-  migrationsRun: false, 
+
+  migrationsRun: false,
 });

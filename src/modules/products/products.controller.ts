@@ -46,7 +46,7 @@ export class ProductsController {
   private stripCostPrice<T extends Partial<Product>>(role: UserRole, data: T | T[]) {
     if (role === UserRole.ADMIN) return data;
     const strip = (p: T) => {
-      const { costPrice, ...rest } = p;
+      const { costPrice: _costPrice, ...rest } = p;
       return rest;
     };
     return Array.isArray(data) ? data.map(strip) : strip(data);

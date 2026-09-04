@@ -15,6 +15,7 @@ import { ProductsService } from '../products/products.service';
 import { Product } from '../products/entities/product.entity';
 import { CashRegisterService } from '../cash-register/cash-register.service';
 import { Transaction, TransactionType } from '../cash-register/entities/transaction.entity';
+import { asDbError } from '../../common/utils/db-error.util';
 
 @Injectable()
 export class InternalConsumptionService {
@@ -82,7 +83,10 @@ export class InternalConsumptionService {
       return this.findOne(saved.id);
     } catch (error) {
       await queryRunner.rollbackTransaction();
-      this.logger.error(`ROLLBACK en consumo interno: ${error.message}`, error.stack);
+      this.logger.error(
+        `ROLLBACK en consumo interno: ${asDbError(error).message}`,
+        asDbError(error).stack,
+      );
       throw error;
     } finally {
       await queryRunner.release();
@@ -105,7 +109,9 @@ export class InternalConsumptionService {
       qb.andWhere(
         new Brackets((sub) => {
           sub
-            .where('ic.consumerType = :teacherType', { teacherType: InternalConsumptionConsumerType.TEACHER })
+            .where('ic.consumerType = :teacherType', {
+              teacherType: InternalConsumptionConsumerType.TEACHER,
+            })
             .orWhere('ic.consumerType = :staffType AND ic.user_id = :userId', {
               staffType: InternalConsumptionConsumerType.STAFF,
               userId: requestingUser.id,
@@ -115,11 +121,15 @@ export class InternalConsumptionService {
     }
 
     if (query.status) qb.andWhere('ic.status = :status', { status: query.status });
-    if (query.consumerType) qb.andWhere('ic.consumerType = :consumerType', { consumerType: query.consumerType });
+    if (query.consumerType)
+      qb.andWhere('ic.consumerType = :consumerType', { consumerType: query.consumerType });
     if (query.teacherId) qb.andWhere('ic.teacher_id = :teacherId', { teacherId: query.teacherId });
     if (query.userId) qb.andWhere('ic.user_id = :userId', { userId: query.userId });
     if (query.dateFrom && query.dateTo) {
-      qb.andWhere('ic.date BETWEEN :dateFrom AND :dateTo', { dateFrom: query.dateFrom, dateTo: query.dateTo });
+      qb.andWhere('ic.date BETWEEN :dateFrom AND :dateTo', {
+        dateFrom: query.dateFrom,
+        dateTo: query.dateTo,
+      });
     }
 
     return qb.orderBy('ic.createdAt', 'DESC').getMany();

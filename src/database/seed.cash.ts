@@ -571,9 +571,9 @@ async function seedCash(): Promise<void> {
             ? '    —     '
             : spec.difference === 0
               ? '   $0     '
-              : spec.difference! > 0
+              : spec.difference > 0
                 ? `  +$${spec.difference}  `
-                : `  -$${Math.abs(spec.difference!)}  `;
+                : `  -$${Math.abs(spec.difference)}  `;
         console.log(
           `║ ${day.date.slice(5)} ║ ${label.padEnd(9)} ║ ${estado} ║ $${String(cashExp).padEnd(7)} ║ ${contado.padEnd(7)} ║ ${diff.padEnd(10)} ║`,
         );

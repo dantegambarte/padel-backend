@@ -87,7 +87,7 @@ describe('CourtsService', () => {
       courtRepo.findOne.mockResolvedValue(court);
       courtRepo.save.mockResolvedValue({ ...court, name: 'Cancha Actualizada' });
 
-      const result = await service.update('court-uuid', { name: 'Cancha Actualizada' });
+      await service.update('court-uuid', { name: 'Cancha Actualizada' });
       expect(courtRepo.save).toHaveBeenCalled();
     });
 

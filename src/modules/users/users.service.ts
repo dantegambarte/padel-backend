@@ -70,7 +70,7 @@ export class UsersService {
     this.logger.log(`Usuario creado: ${saved.username} (${saved.role})`);
 
     const { passwordHash: _, ...result } = saved;
-    return result as Omit<User, 'passwordHash'>;
+    return result;
   }
 
   /** Actualiza parcialmente un usuario. No permite que el usuario se desactive a sí mismo. */
@@ -108,7 +108,7 @@ export class UsersService {
 
     const saved = await this.userRepo.save(user);
     const { passwordHash: _, ...result } = saved;
-    return result as Omit<User, 'passwordHash'>;
+    return result;
   }
 
   /**
