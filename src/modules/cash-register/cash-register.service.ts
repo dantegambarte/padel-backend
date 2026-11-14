@@ -1409,15 +1409,17 @@ export class CashRegisterService {
          cs.notes,
          COALESCE(ub.full_name, ub.username, 'Desconocido') AS opened_by_name,
          COALESCE(uc.full_name, uc.username)                 AS closed_by_name,
-         COALESCE(SUM(CASE WHEN t.type != 'expense' THEN t.amount_cash     ELSE 0 END), 0) AS cash_income,
-         COALESCE(SUM(CASE WHEN t.type  = 'expense' THEN t.amount_cash     ELSE 0 END), 0) AS cash_expense_total,
-         COALESCE(SUM(CASE WHEN t.type != 'expense' THEN t.amount_transfer ELSE 0 END), 0) AS transfer_total
+         (SELECT COALESCE(SUM(t.amount_cash), 0)
+            FROM transactions t WHERE t.cash_session_id = cs.id)     AS cash_income,
+         (SELECT COALESCE(SUM(e.amount), 0)
+            FROM expenses e
+           WHERE e.cash_session_id = cs.id AND e.deleted_at IS NULL) AS cash_expense_total,
+         (SELECT COALESCE(SUM(t.amount_transfer), 0)
+            FROM transactions t WHERE t.cash_session_id = cs.id)     AS transfer_total
        FROM cash_sessions cs
-       LEFT JOIN users ub       ON ub.id = cs.opened_by_user_id
-       LEFT JOIN users uc       ON uc.id = cs.closed_by_user_id
-       LEFT JOIN transactions t ON t.cash_session_id = cs.id
+       LEFT JOIN users ub ON ub.id = cs.opened_by_user_id
+       LEFT JOIN users uc ON uc.id = cs.closed_by_user_id
        WHERE cs.date = $1
-       GROUP BY cs.id, ub.full_name, ub.username, uc.full_name, uc.username
        ORDER BY cs.opened_at ASC`,
       [date],
     );
