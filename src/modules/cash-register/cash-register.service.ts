@@ -1455,7 +1455,13 @@ export class CashRegisterService {
       0,
     );
     const totalTransfer = rows.reduce((s, r) => s + parseFloat(r.transfer_total), 0);
-    const totalDia = totalEfectivo + totalTransfer;
+    // Collected money excludes the initial change fund; expected cash in the
+    // drawer (totalEfectivo) includes it so it matches the counted cash.
+    const totalNetCash = rows.reduce(
+      (s, r) => s + Math.max(0, parseFloat(r.cash_income) - parseFloat(r.cash_expense_total)),
+      0,
+    );
+    const totalDia = totalNetCash + totalTransfer;
     const allClosed = rows.every((r) => r.status === 'closed');
     const totalContado = allClosed
       ? rows.reduce((s, r) => s + (r.cash_counted != null ? parseFloat(r.cash_counted) : 0), 0)
@@ -1514,7 +1520,8 @@ export class CashRegisterService {
       const ib = parseFloat(r.initial_balance ?? '0');
       const ci = parseFloat(r.cash_income);
       const ce = parseFloat(r.cash_expense_total);
-      const ef = Math.max(0, ci - ce);
+      const ef = Math.max(0, ib + ci - ce);
+      const net = Math.max(0, ci - ce);
       const tr = parseFloat(r.transfer_total);
       wsR.addRow([]);
       const shiftTitle = wsR.addRow([`Turno ${i + 1} — ${r.opened_by_name}`]);
@@ -1530,7 +1537,7 @@ export class CashRegisterService {
       addRow('- Egresos en Efectivo (gastos)', `$ ${fmtNum(ce)}`);
       addRow('= Efectivo esperado (sistema)', `$ ${fmtNum(ef)}`);
       addRow('Transferencias', `$ ${fmtNum(tr)}`);
-      addRow('Total turno', `$ ${fmtNum(ef + tr)}`);
+      addRow('Total turno', `$ ${fmtNum(net + tr)}`);
       if (r.cash_counted != null) {
         addRow('Efectivo contado', `$ ${fmtNum(parseFloat(r.cash_counted))}`);
         const diff = parseFloat(r.difference ?? '0');
@@ -1587,7 +1594,9 @@ export class CashRegisterService {
     rows.forEach((r, i) => {
       const ci = parseFloat(r.cash_income);
       const ce = parseFloat(r.cash_expense_total);
-      const ef = Math.max(0, ci - ce);
+      const ib = parseFloat(r.initial_balance ?? '0');
+      const ef = Math.max(0, ib + ci - ce);
+      const net = Math.max(0, ci - ce);
       const tr = parseFloat(r.transfer_total);
       const contado = r.cash_counted != null ? parseFloat(r.cash_counted) : null;
       const diff = r.difference != null ? parseFloat(r.difference) : null;
@@ -1603,7 +1612,7 @@ export class CashRegisterService {
         cashOut: ce,
         cash: ef,
         transfer: tr,
-        total: ef + tr,
+        total: net + tr,
         contado: contado ?? '—',
         diff: diff != null ? diff : '—',
       });

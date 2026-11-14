@@ -110,17 +110,37 @@ describe('GET /cash/export/daily (e2e)', () => {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(res.body);
     const sheet = wb.getWorksheet('Resumen del Día')!;
-    const values = new Map<string, string>();
+    // Summary rows come first; the per-shift detail repeats some labels, and
+    // with a single shift its values are the last occurrence of each label.
+    const summary = new Map<string, string>();
+    const shift = new Map<string, string>();
     sheet.eachRow((row) => {
       const label = row.getCell(1).text;
-      // Summary rows come first; per-shift detail repeats some labels.
-      if (!values.has(label)) values.set(label, row.getCell(2).text);
+      if (!summary.has(label)) summary.set(label, row.getCell(2).text);
+      shift.set(label, row.getCell(2).text);
     });
 
-    expect(values.get('Cantidad de turnos')).toBe('1');
-    expect(values.get('+ Ingresos en Efectivo')).toBe('$ 1.500,00');
-    expect(values.get('- Egresos en Efectivo (gastos)')).toBe('$ 200,00');
-    expect(values.get('= Efectivo esperado (sistema)')).toBe('$ 1.400,00');
-    expect(values.get('Transferencias totales')).toBe('$ 300,00');
+    expect(summary.get('Cantidad de turnos')).toBe('1');
+    expect(summary.get('+ Ingresos en Efectivo')).toBe('$ 1.500,00');
+    expect(summary.get('- Egresos en Efectivo (gastos)')).toBe('$ 200,00');
+    expect(summary.get('= Efectivo esperado (sistema)')).toBe('$ 1.400,00');
+    expect(summary.get('Transferencias totales')).toBe('$ 300,00');
+    // Collected money excludes the initial change fund: 1500 - 200 + 300.
+    expect(summary.get('Recaudación total del día')).toBe('$ 1.600,00');
+
+    // Expected cash in the drawer includes the fund, so it matches the
+    // counted cash and the stored difference ("Cuadra").
+    expect(shift.get('= Efectivo esperado (sistema)')).toBe('$ 1.400,00');
+    expect(shift.get('Total turno')).toBe('$ 1.600,00');
+    expect(shift.get('Efectivo contado')).toBe('$ 1.400,00');
+
+    const breakdown = wb.getWorksheet('Desglose por Turno')!;
+    // Columns: 9 = Ef. Esperado, 11 = Total Turno; row 4 is the TOTAL row.
+    const shiftRow = breakdown.getRow(2);
+    const totalRow = breakdown.getRow(4);
+    expect(shiftRow.getCell(9).value).toBe(1400);
+    expect(shiftRow.getCell(11).value).toBe(1600);
+    expect(totalRow.getCell(9).value).toBe(1400);
+    expect(totalRow.getCell(11).value).toBe(1600);
   });
 });
