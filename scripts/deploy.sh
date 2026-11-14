@@ -1,105 +1,116 @@
 #!/bin/bash
 # ══════════════════════════════════════════════════════
-#  Script de Deploy — PadelSys Backend en DonWeb VPS
+#  Backend deploy script (pnpm + PM2)
 #
-#  Ejecutar desde el servidor como el usuario de deploy:
+#  Run on the server as the user that owns the PM2 process:
 #    bash scripts/deploy.sh
 #
-#  Pre-requisitos en el VPS:
-#    - Node.js 20 LTS (via nvm)
-#    - PM2 instalado globalmente
-#    - PostgreSQL corriendo y configurado
-#    - Archivo .env en /opt/padelsys/backend/.env
+#  Every setting can be overridden through the environment:
+#    APP_DIR      repository checkout on the server   (default: the repo containing this script)
+#    BRANCH       branch to deploy                    (default: production)
+#    PM2_CONFIG   PM2 ecosystem file inside APP_DIR   (default: ecosystem.config.cjs)
+#    PM2_APP      PM2 process name                    (default: padel-backend)
+#    HEALTH_URL   URL that must answer 401            (default: http://127.0.0.1:3002/api/v1/auth/me)
+#    SKIP_PULL=1  deploy the current checkout without fetching
+#    SKIP_PM2=1   stop after migrations (no PM2 restart, no health check)
+#
+#  Prerequisites:
+#    - Node.js 20+ and pnpm (corepack enable pnpm, as root)
+#    - PM2 for the deploy user
+#    - PostgreSQL reachable with the values in APP_DIR/.env
 # ══════════════════════════════════════════════════════
 
-set -e  # Si cualquier comando falla, el script se detiene
+set -euo pipefail
 
-# ── Colores para output ─────────────────────────────────
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
-NC='\033[0m' # Sin color
+NC='\033[0m'
 
-APP_DIR="/opt/padelsys/backend"
-LOG_DIR="/var/log/padelsys"
+APP_DIR="${APP_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+BRANCH="${BRANCH:-production}"
+PM2_CONFIG="${PM2_CONFIG:-ecosystem.config.cjs}"
+PM2_APP="${PM2_APP:-padel-backend}"
+HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:3002/api/v1/auth/me}"
+SKIP_PULL="${SKIP_PULL:-0}"
+SKIP_PM2="${SKIP_PM2:-0}"
 
-echo -e "${GREEN}╔═══════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║   PadelSys — Deploy Backend           ║${NC}"
-echo -e "${GREEN}╚═══════════════════════════════════════╝${NC}"
-
-# ── 1. Verificar directorio ─────────────────────────────
-echo -e "\n${YELLOW}[1/7] Verificando entorno...${NC}"
-if [ ! -d "$APP_DIR" ]; then
-  echo -e "${RED}Error: Directorio $APP_DIR no existe.${NC}"
-  echo "Crear con: sudo mkdir -p $APP_DIR && sudo chown \$USER:\$USER $APP_DIR"
+fail() {
+  echo -e "${RED}Error: $1${NC}" >&2
   exit 1
+}
+
+echo -e "${GREEN}PadelSys — backend deploy (${BRANCH})${NC}"
+
+# ── 1. Preflight: everything is checked before the code changes ──
+echo -e "\n${YELLOW}[1/6] Checking environment...${NC}"
+[ -d "$APP_DIR" ] || fail "directory $APP_DIR does not exist."
+[ -f "$APP_DIR/.env" ] || fail ".env not found in $APP_DIR (copy .env.production.example and fill it in)."
+command -v pnpm > /dev/null 2>&1 || fail "pnpm is not installed. As root run: corepack enable pnpm"
+if [ "$SKIP_PM2" != "1" ]; then
+  command -v pm2 > /dev/null 2>&1 || fail "pm2 is not installed for user $(whoami)."
+  [ -f "$APP_DIR/$PM2_CONFIG" ] || fail "PM2 config $APP_DIR/$PM2_CONFIG not found."
 fi
-
-if [ ! -f "$APP_DIR/.env" ]; then
-  echo -e "${RED}Error: Archivo .env no encontrado en $APP_DIR${NC}"
-  echo "Crear con: cp .env.production.example .env y completar los valores."
-  exit 1
+cd "$APP_DIR"
+if [ "$SKIP_PULL" != "1" ] && [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+  fail "the checkout has uncommitted changes; commit or discard them first."
 fi
+echo -e "${GREEN}✓ Environment OK (node $(node --version), pnpm $(pnpm --version))${NC}"
 
-sudo mkdir -p $LOG_DIR
-sudo chown $USER:$USER $LOG_DIR
-echo -e "${GREEN}✓ Entorno OK${NC}"
+# ── 2. Update source ─────────────────────────────────────
+echo -e "\n${YELLOW}[2/6] Updating source...${NC}"
+PREVIOUS_COMMIT="$(git rev-parse HEAD)"
+if [ "$SKIP_PULL" = "1" ]; then
+  echo "SKIP_PULL=1: keeping $(git rev-parse --short HEAD)"
+else
+  git fetch origin "$BRANCH"
+  git checkout "$BRANCH"
+  git merge --ff-only "origin/$BRANCH"
+fi
+echo -e "${GREEN}✓ $(git log -1 --format='%h %s') (previous: ${PREVIOUS_COMMIT:0:7})${NC}"
 
-# ── 2. Ir al directorio de la app ───────────────────────
-cd $APP_DIR
-echo -e "\n${YELLOW}[2/7] Actualizando código fuente...${NC}"
-git pull origin main
-echo -e "${GREEN}✓ Código actualizado${NC}"
+# ── 3. Install dependencies ──────────────────────────────
+# Dev dependencies are required: the build uses @nestjs/cli/typescript and
+# the migrations run through ts-node.
+echo -e "\n${YELLOW}[3/6] Installing dependencies...${NC}"
+pnpm install --frozen-lockfile
+echo -e "${GREEN}✓ Dependencies installed${NC}"
 
-# ── 3. Instalar dependencias de producción ──────────────
-echo -e "\n${YELLOW}[3/7] Instalando dependencias...${NC}"
-pnpm install --frozen-lockfile --prod
-echo -e "${GREEN}✓ Dependencias instaladas${NC}"
-
-# ── 4. Compilar TypeScript ──────────────────────────────
-echo -e "\n${YELLOW}[4/7] Compilando TypeScript...${NC}"
+# ── 4. Build ─────────────────────────────────────────────
+echo -e "\n${YELLOW}[4/6] Building...${NC}"
 pnpm run build
-echo -e "${GREEN}✓ Build completado en /dist${NC}"
+[ -f dist/main.js ] || fail "build finished without dist/main.js."
+echo -e "${GREEN}✓ Build ready in dist/${NC}"
 
-# ── 5. Ejecutar migraciones ──────────────────────────────
-echo -e "\n${YELLOW}[5/7] Ejecutando migraciones de base de datos...${NC}"
+# ── 5. Migrations ────────────────────────────────────────
+echo -e "\n${YELLOW}[5/6] Running database migrations...${NC}"
 pnpm run migration:run
-echo -e "${GREEN}✓ Migraciones aplicadas${NC}"
+echo -e "${GREEN}✓ Migrations applied${NC}"
 
-# ── 6. Reiniciar con PM2 ─────────────────────────────────
-echo -e "\n${YELLOW}[6/7] Reiniciando servidor con PM2...${NC}"
-if pm2 describe padelsys-api > /dev/null 2>&1; then
-  # La app ya existe → reload sin downtime
-  pm2 reload ecosystem.config.js --env production
-  echo -e "${GREEN}✓ Servidor recargado (zero-downtime)${NC}"
-else
-  # Primera vez → start
-  pm2 start ecosystem.config.js --env production
-  pm2 save
-  echo -e "${GREEN}✓ Servidor iniciado${NC}"
+if [ "$SKIP_PM2" = "1" ]; then
+  echo -e "\n${GREEN}✓ Done (SKIP_PM2=1: process not restarted)${NC}"
+  exit 0
 fi
 
-# ── 7. Verificar estado ──────────────────────────────────
-echo -e "\n${YELLOW}[7/7] Verificando estado...${NC}"
-sleep 2
-pm2 status padelsys-api
+# ── 6. Restart and health check ──────────────────────────
+echo -e "\n${YELLOW}[6/6] Restarting with PM2...${NC}"
+pm2 startOrReload "$PM2_CONFIG" --update-env
+pm2 save > /dev/null
 
-# Health check básico
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/v1/auth/me || true)
+HTTP_CODE="000"
+for _ in $(seq 1 15); do
+  HTTP_CODE="$(curl -s -o /dev/null -w '%{http_code}' "$HEALTH_URL" || true)"
+  [ "$HTTP_CODE" = "401" ] && break
+  sleep 2
+done
+
 if [ "$HTTP_CODE" = "401" ]; then
-  # 401 es correcto: el endpoint existe pero requiere token
-  echo -e "${GREEN}✓ API respondiendo correctamente (HTTP 401 esperado en /auth/me)${NC}"
+  echo -e "${GREEN}✓ API answering (HTTP 401 expected on $HEALTH_URL)${NC}"
 else
-  echo -e "${YELLOW}⚠ Health check retornó HTTP $HTTP_CODE. Revisar logs:${NC}"
-  echo "   pm2 logs padelsys-api --lines 50"
+  echo -e "${RED}Health check returned HTTP $HTTP_CODE.${NC}" >&2
+  echo "  Logs:     pm2 logs $PM2_APP --lines 100 --nostream" >&2
+  echo "  Rollback: git checkout ${PREVIOUS_COMMIT:0:7} && pnpm install --frozen-lockfile && pnpm run build && pm2 restart $PM2_APP" >&2
+  exit 1
 fi
 
-echo -e "\n${GREEN}╔═══════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║   ✓ Deploy completado exitosamente    ║${NC}"
-echo -e "${GREEN}╚═══════════════════════════════════════╝${NC}"
-echo ""
-echo "  API:    https://tudominio.com/api/v1"
-echo "  Docs:   (deshabilitado en producción)"
-echo "  Logs:   pm2 logs padelsys-api"
-echo "  Monitor: pm2 monit"
-echo ""
+echo -e "\n${GREEN}✓ Deploy finished: $(git log -1 --format='%h %s')${NC}"
