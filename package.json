@@ -5,6 +5,7 @@
   "author": "",
   "private": true,
   "license": "UNLICENSED",
+  "packageManager": "pnpm@11.18.0",
   "scripts": {
     "build": "nest build",
     "bd": "npx prisma studio --url=\"postgresql://padel_user:padel_secret@localhost:5432/padelsys?schema=public\"",

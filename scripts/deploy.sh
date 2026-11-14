@@ -47,6 +47,10 @@ echo -e "\n${YELLOW}[1/6] Checking environment...${NC}"
 [ -d "$APP_DIR" ] || fail "directory $APP_DIR does not exist."
 [ -f "$APP_DIR/.env" ] || fail ".env not found in $APP_DIR (copy .env.production.example and fill it in)."
 command -v pnpm > /dev/null 2>&1 || fail "pnpm is not installed. As root run: corepack enable pnpm"
+# pnpm-workspace.yaml uses pnpm 11 settings (allowBuilds); an older pnpm
+# silently skips the bcrypt native build and logins break.
+PNPM_MAJOR="$(pnpm --version | cut -d. -f1)"
+[ "$PNPM_MAJOR" -ge 11 ] || fail "pnpm $(pnpm --version) found, pnpm 11+ is required (it needs Node 22.13+)."
 if [ "$SKIP_PM2" != "1" ]; then
   command -v pm2 > /dev/null 2>&1 || fail "pm2 is not installed for user $(whoami)."
   [ -f "$APP_DIR/$PM2_CONFIG" ] || fail "PM2 config $APP_DIR/$PM2_CONFIG not found."
