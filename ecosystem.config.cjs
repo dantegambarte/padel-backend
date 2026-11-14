@@ -4,7 +4,7 @@
  * Runs the compiled app directly (no npm wrapper), bound to loopback only.
  * Nginx (managed by CloudPanel) is the only public entry point.
  *
- *   npm run build
+ *   pnpm run build
  *   pm2 start ecosystem.config.cjs
  *   pm2 save
  *
