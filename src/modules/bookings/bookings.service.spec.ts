@@ -327,18 +327,21 @@ describe('BookingsService', () => {
     });
 
     it.each([
-      ['empleado', mockEmployee],
+      ['employee', mockEmployee],
       ['admin', mockAdmin],
-    ])('lanza ConflictException si %s intenta mover un turno COMPLETED', async (_role, user) => {
-      const booking = mockBooking({ status: BookingStatus.COMPLETED });
-      mockManager.findOne
-        .mockResolvedValueOnce(booking)
-        .mockResolvedValueOnce({ ...booking, items: [], payment: null });
-      const attempt = service.update('booking-uuid', moveDto, user());
-      await expect(attempt).rejects.toThrow(ConflictException);
-      await expect(attempt).rejects.toThrow('No se puede mover un turno que ya ha finalizado.');
-      expect(mockManager.update).not.toHaveBeenCalled();
-    });
+    ])(
+      'throws ConflictException when %s tries to move a COMPLETED booking',
+      async (_role, user) => {
+        const booking = mockBooking({ status: BookingStatus.COMPLETED });
+        mockManager.findOne
+          .mockResolvedValueOnce(booking)
+          .mockResolvedValueOnce({ ...booking, items: [], payment: null });
+        const attempt = service.update('booking-uuid', moveDto, user());
+        await expect(attempt).rejects.toThrow(ConflictException);
+        await expect(attempt).rejects.toThrow('No se puede mover un turno que ya ha finalizado.');
+        expect(mockManager.update).not.toHaveBeenCalled();
+      },
+    );
 
     it('lanza ForbiddenException si empleado intenta mover un turno CANCELLED', async () => {
       const booking = mockBooking({ status: BookingStatus.CANCELLED });
@@ -350,7 +353,7 @@ describe('BookingsService', () => {
       );
     });
 
-    it('admin puede mover un turno en estado CANCELLED', async () => {
+    it('lets an admin move a CANCELLED booking', async () => {
       const booking = mockBooking({ status: BookingStatus.CANCELLED });
       mockManager.findOne
         .mockResolvedValueOnce(booking)
