@@ -1,56 +1,46 @@
 /**
- * PM2 Ecosystem — PadelSys Backend
+ * PM2 ecosystem — La Caldera backend (production)
  *
- * Instalación en el VPS:
- *   npm install -g pm2
- *   pm2 start ecosystem.config.js --env production
+ * Runs the compiled app directly (no npm wrapper), bound to loopback only.
+ * Nginx (managed by CloudPanel) is the only public entry point.
+ *
+ *   npm run build
+ *   pm2 start ecosystem.config.cjs
  *   pm2 save
- *   pm2 startup   ← genera el comando para arranque automático en boot
  *
- * Comandos útiles:
- *   pm2 status                → estado de todos los procesos
- *   pm2 logs padelsys-api     → ver logs en tiempo real
- *   pm2 restart padelsys-api  → reiniciar tras un deploy
- *   pm2 reload padelsys-api   → reinicio sin downtime (zero-downtime reload)
- *   pm2 monit                 → monitor interactivo de CPU/RAM
+ * Useful:
+ *   pm2 logs padel-backend
+ *   pm2 restart padel-backend   # after a new build
+ *
+ * Secrets stay in .env (loaded by ConfigModule from cwd), never here.
  */
 module.exports = {
   apps: [
     {
-      name: 'padelsys-api',
+      name: 'padel-backend',
       script: 'dist/main.js',
+      cwd: __dirname,
 
-      // ── Instancias ─────────────────────────────────
-      // 'max' → una instancia por núcleo de CPU disponible.
-      // Para un VPS básico de 1-2 cores, usar instances: 1 para simplicidad.
       instances: 1,
-      exec_mode: 'fork',   // usar 'cluster' si instances > 1
+      exec_mode: 'fork',
 
-      // ── Auto-restart ───────────────────────────────
-      watch: false,                    // nunca watch en producción
-      max_memory_restart: '400M',      // reinicia si supera 400MB de RAM
-      restart_delay: 3000,             // espera 3s antes de reiniciar tras crash
-      max_restarts: 10,               // máximo 10 reinicios en ventana de tiempo
-      min_uptime: '10s',              // si cae antes de 10s, cuenta como crash
+      watch: false,
+      max_memory_restart: '400M',
+      restart_delay: 3000,
+      max_restarts: 10,
+      min_uptime: '10s',
 
-      // ── Variables de entorno ───────────────────────
       env: {
-        NODE_ENV: 'development',
-      },
-      env_production: {
         NODE_ENV: 'production',
-        PORT: 3000,
+        HOST: '127.0.0.1',
+        PORT: 3002,
       },
 
-      // ── Logs ──────────────────────────────────────
-      // Los logs se guardan en /var/log/padelsys/ (ver script de deploy)
-      out_file: '/var/log/padelsys/api-out.log',
-      error_file: '/var/log/padelsys/api-error.log',
+      // Logs go to PM2's default location (~/.pm2/logs).
       merge_logs: true,
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
 
-      // ── Graceful shutdown ──────────────────────────
-      // NestJS necesita tiempo para cerrar conexiones de DB
+      // Give NestJS time to close DB connections.
       kill_timeout: 5000,
       listen_timeout: 10000,
     },
