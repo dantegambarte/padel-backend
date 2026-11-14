@@ -38,6 +38,11 @@ export enum PriceType {
 @Entity('bookings')
 @Index('IDX_booking_date', ['date'])
 @Index('IDX_booking_court_date', ['courtId', 'date'])
+// Declared here (not only in migrations) so schema synchronize never drops it.
+@Index('UQ_booking_court_date_hour_active', ['courtId', 'date', 'hour'], {
+  unique: true,
+  where: `"status" != 'cancelled'`,
+})
 export class Booking {
   @PrimaryGeneratedColumn('uuid')
   id: string;
