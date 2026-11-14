@@ -440,10 +440,10 @@ export class BookingsService {
 
       let rescheduleFields: { courtId?: string; date?: string; hour?: string } | null = null;
       if (dto.courtId !== undefined || dto.date !== undefined || dto.hour !== undefined) {
-        if (booking.status === BookingStatus.COMPLETED && user.role !== UserRole.ADMIN) {
-          throw new ForbiddenException(
-            'Solo los administradores pueden mover turnos que ya han finalizado.',
-          );
+        // A finished booking may already have payments recorded in a cash
+        // session; moving it would detach the schedule from that money.
+        if (booking.status === BookingStatus.COMPLETED) {
+          throw new ConflictException('No se puede mover un turno que ya ha finalizado.');
         }
         if (booking.status === BookingStatus.CANCELLED && user.role !== UserRole.ADMIN) {
           throw new ForbiddenException('Solo los administradores pueden mover turnos cancelados.');
