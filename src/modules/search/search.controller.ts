@@ -25,7 +25,7 @@ export class SearchController {
    * Acceso: Admin y Empleado.
    */
   @Get()
-  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  @Throttle({ default: { ttl: 60_000, limit: process.env.NODE_ENV === 'test' ? 1000 : 30 } })
   @ApiOperation({
     summary: 'Búsqueda global (productos + reservas + ventas POS)',
     description:
