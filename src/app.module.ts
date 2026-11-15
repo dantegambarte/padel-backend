@@ -8,6 +8,7 @@ import { ThrottlerGuard } from '@nestjs/throttler';
 
 import { databaseConfig } from './config/database.config';
 import { envValidationSchema } from './config/env.validation';
+import { THROTTLE_LIMITS } from './config/throttle-limits';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
 import { AuthModule } from './modules/auth/auth.module';
@@ -44,8 +45,7 @@ import { SearchModule } from './modules/search/search.module';
       {
         name: 'default',
         ttl: 60_000,
-        // e2e suites run many parallel workers from one IP.
-        limit: process.env.NODE_ENV === 'test' ? 10_000 : 60,
+        limit: THROTTLE_LIMITS.global,
       },
     ]),
 

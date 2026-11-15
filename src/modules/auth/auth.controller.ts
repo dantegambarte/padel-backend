@@ -17,8 +17,9 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
 import { IsString, IsNotEmpty } from 'class-validator';
+import { THROTTLE_LIMITS } from '../../config/throttle-limits';
 
-const loginThrottleLimit = process.env.NODE_ENV === 'test' ? 1000 : 5;
+const loginThrottleLimit = THROTTLE_LIMITS.login;
 
 class RefreshTokenDto {
   @IsString()
