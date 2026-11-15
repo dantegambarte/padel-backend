@@ -3,14 +3,17 @@
  *
  * The frontend Playwright suite runs many workers from one IP and logs in per
  * spec, which trips the production limits. It sets E2E_RELAX_THROTTLE=1 to
- * raise them. The flag is ignored when NODE_ENV is production, so a stray
- * variable on a deployed host cannot disable rate limiting.
+ * raise them. The flag only works when NODE_ENV is explicitly "test" or
+ * "development": an unset or production NODE_ENV keeps the real limits, so a
+ * stray variable on a deployed host cannot disable rate limiting.
  */
 
 type Env = Record<string, string | undefined>;
 
+const RELAXABLE_ENVS = ['test', 'development'];
+
 export function isThrottleRelaxed(env: Env = process.env): boolean {
-  return env['E2E_RELAX_THROTTLE'] === '1' && env['NODE_ENV'] !== 'production';
+  return env['E2E_RELAX_THROTTLE'] === '1' && RELAXABLE_ENVS.includes(env['NODE_ENV'] ?? '');
 }
 
 export function resolveThrottleLimits(env: Env = process.env) {

@@ -12,7 +12,7 @@ describe('throttle limits', () => {
     }
   });
 
-  it('relaxes the limits only with E2E_RELAX_THROTTLE=1 outside production', () => {
+  it('relaxes the limits only with E2E_RELAX_THROTTLE=1 and NODE_ENV test or development', () => {
     expect(resolveThrottleLimits({ NODE_ENV: 'test', E2E_RELAX_THROTTLE: '1' })).toEqual({
       relaxed: true,
       global: 10_000,
@@ -22,10 +22,12 @@ describe('throttle limits', () => {
     expect(isThrottleRelaxed({ NODE_ENV: 'development', E2E_RELAX_THROTTLE: '1' })).toBe(true);
   });
 
-  it('ignores the relax flag in production', () => {
-    expect(resolveThrottleLimits({ NODE_ENV: 'production', E2E_RELAX_THROTTLE: '1' })).toEqual(
-      PRODUCTION_LIMITS,
-    );
+  it('ignores the relax flag in production, with NODE_ENV unset or unknown', () => {
+    for (const NODE_ENV of ['production', undefined, '', 'staging']) {
+      expect(resolveThrottleLimits({ NODE_ENV, E2E_RELAX_THROTTLE: '1' })).toEqual(
+        PRODUCTION_LIMITS,
+      );
+    }
   });
 
   it('ignores relax flag values other than "1"', () => {

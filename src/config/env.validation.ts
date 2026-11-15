@@ -13,7 +13,7 @@ import * as Joi from 'joi';
 export const envValidationSchema = Joi.object({
   NODE_ENV: Joi.string().valid('development', 'production', 'test').default('development'),
 
-  // Local e2e only; ignored when NODE_ENV is production (see config/throttle-limits.ts).
+  // Local e2e only; honored only when NODE_ENV is test or development (see config/throttle-limits.ts).
   E2E_RELAX_THROTTLE: Joi.string().valid('0', '1').optional(),
 
   PORT: Joi.number().port().default(3000),
