@@ -1,8 +1,9 @@
 import { NestFactory, Reflector } from '@nestjs/core';
-import { ValidationPipe, ClassSerializerInterceptor } from '@nestjs/common';
+import { ValidationPipe, ClassSerializerInterceptor, Logger } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { THROTTLE_LIMITS } from './config/throttle-limits';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -55,6 +56,12 @@ async function bootstrap() {
 
   const port = process.env.PORT || 3000;
   const host = process.env.HOST ?? '0.0.0.0';
+  if (THROTTLE_LIMITS.relaxed) {
+    new Logger('Throttler').warn(
+      `E2E_RELAX_THROTTLE=1: rate limits relaxed (global ${THROTTLE_LIMITS.global}/min, login ${THROTTLE_LIMITS.login}/min). Never use this outside local e2e runs.`,
+    );
+  }
+
   await app.listen(port, host);
   console.log(`🚀 PadelSys API corriendo en: http://localhost:${port}/api/v1`);
 }

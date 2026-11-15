@@ -4,6 +4,7 @@ import { Throttle } from '@nestjs/throttler';
 
 import { SearchService } from './search.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { THROTTLE_LIMITS } from '../../config/throttle-limits';
 
 @ApiTags('Búsqueda Global')
 @ApiBearerAuth()
@@ -25,7 +26,7 @@ export class SearchController {
    * Acceso: Admin y Empleado.
    */
   @Get()
-  @Throttle({ default: { ttl: 60_000, limit: process.env.NODE_ENV === 'test' ? 1000 : 30 } })
+  @Throttle({ default: { ttl: 60_000, limit: THROTTLE_LIMITS.search } })
   @ApiOperation({
     summary: 'Búsqueda global (productos + reservas + ventas POS)',
     description:
