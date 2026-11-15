@@ -44,7 +44,8 @@ import { SearchModule } from './modules/search/search.module';
       {
         name: 'default',
         ttl: 60_000,
-        limit: 60,
+        // e2e suites run many parallel workers from one IP.
+        limit: process.env.NODE_ENV === 'test' ? 10_000 : 60,
       },
     ]),
 
