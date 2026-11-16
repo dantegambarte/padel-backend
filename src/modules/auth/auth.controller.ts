@@ -61,6 +61,20 @@ export class AuthController {
   }
 
   /**
+   * POST /api/v1/auth/logout
+   * Cierra la sesión en el servidor: el access token y el refresh token
+   * de la sesión actual dejan de servir en el acto.
+   */
+  @Post('logout')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Cerrar sesión' })
+  async logout(@CurrentUser('id') userId: string): Promise<void> {
+    await this.authService.logout(userId);
+  }
+
+  /**
    * GET /api/v1/auth/me
    * Retorna el perfil del usuario autenticado.
    * El Angular lo usa al recargar la página para restaurar la sesión.

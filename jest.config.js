@@ -6,7 +6,7 @@ module.exports = {
   transform: {
     '^.+\\.(t|j)s$': 'ts-jest',
   },
-  collectCoverageFrom: ['**/*.(t|j)s', '!**/*.module.ts', '!**/main.ts', '!**/seed.ts'],
+  collectCoverageFrom: ['**/*.(t|j)s', '!**/*.module.ts', '!**/main.ts', '!**/seed.ts', '!**/*.e2e-spec.ts'],
   coverageDirectory: '../coverage',
   // Floor of the current coverage: it may go up, never down. Raise these
   // values when coverage improves. Directory keys aggregate their files and

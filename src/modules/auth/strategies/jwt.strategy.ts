@@ -12,6 +12,8 @@ export interface JwtPayload {
   role: string;
   /** Versión de sesión al momento de emitir el token. */
   sv: number;
+  /** Versión del refresh token (rotación). Sólo se valida en `/auth/refresh`. */
+  rv?: number;
 }
 
 /**

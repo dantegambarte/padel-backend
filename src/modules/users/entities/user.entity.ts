@@ -46,6 +46,14 @@ export class User {
   @Column({ name: 'session_version', type: 'int', default: 1 })
   sessionVersion: number;
 
+  /**
+   * Versión del refresh token vigente. Se incrementa en cada refresh (rotación);
+   * un refresh token con una versión anterior es un reuso y revoca la sesión.
+   */
+  @Exclude()
+  @Column({ name: 'refresh_token_version', type: 'int', default: 0 })
+  refreshTokenVersion: number;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
