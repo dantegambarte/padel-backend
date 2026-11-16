@@ -36,6 +36,7 @@ import { InternalConsumptionModule } from './modules/internal-consumption/intern
 import { PricingShiftsModule } from './modules/pricing-shifts/pricing-shifts.module';
 
 import { SearchModule } from './modules/search/search.module';
+import { HealthModule } from './modules/health/health.module';
 
 @Module({
   imports: [
@@ -80,6 +81,7 @@ import { SearchModule } from './modules/search/search.module';
     InternalConsumptionModule,
     PricingShiftsModule,
     SearchModule,
+    HealthModule,
   ],
   providers: [
     {
