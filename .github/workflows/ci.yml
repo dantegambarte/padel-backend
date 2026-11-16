@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  # gitleaks-action lists the PR commits through the API.
+  pull-requests: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # Cancel superseded PR runs, never runs on main.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The lint script passes --fix; fail only on errors, warnings are reported.
+      - run: pnpm lint
+
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+
+  e2e:
+    name: E2E tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: padel_user
+          POSTGRES_PASSWORD: padel_ci_password
+          POSTGRES_DB: padelsys_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U padel_user -d padelsys_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Dummy values for CI only; they never reach any real environment.
+      NODE_ENV: test
+      E2E_RELAX_THROTTLE: '1'
+      DB_HOST: localhost
+      DB_PORT: '5432'
+      DB_USERNAME: padel_user
+      DB_PASSWORD: padel_ci_password
+      DB_DATABASE: padelsys_test
+      JWT_SECRET: ci-dummy-jwt-secret-0123456789abcdef0123456789 # gitleaks:allow
+      JWT_REFRESH_SECRET: ci-dummy-refresh-secret-0123456789abcdef01234 # gitleaks:allow
+      JWT_EXPIRES_IN: 8h
+      JWT_REFRESH_EXPIRES_IN: 7d
+      CORS_ORIGIN: http://localhost:4200
+      ALLOWED_ORIGINS: http://localhost:4200
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Run migrations
+        run: pnpm migration:run
+      # The e2e suites log in as the seeded admin user (admin / admin123).
+      - name: Seed database
+        run: pnpm seed
+      - run: pnpm test:e2e
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: pnpm audit --prod --audit-level high
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
