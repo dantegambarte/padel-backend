@@ -148,3 +148,34 @@ describe('FixedBookingsService — syncPrices', () => {
     );
   });
 });
+
+describe('FixedBookingsService — next occurrences in Argentina time', () => {
+  const service = new FixedBookingsService(
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+  );
+  const nextOccurrences = (start: string, dayOfWeek: number, count: number): string[] =>
+    (
+      service as unknown as {
+        getNextOccurrences(s: string, d: number, c: number): string[];
+      }
+    ).getNextOccurrences(start, dayOfWeek, count);
+
+  afterEach(() => jest.useRealTimers());
+
+  it('starts from the Argentina date at 22:00 ART, not the UTC one', () => {
+    // Tuesday 2026-03-10 22:00 ART == Wednesday 2026-03-11 01:00 UTC
+    jest.useFakeTimers().setSystemTime(new Date('2026-03-11T01:00:00Z'));
+    // Tuesday (2) still counts today
+    expect(nextOccurrences('2026-01-01', 2, 2)).toEqual(['2026-03-10', '2026-03-17']);
+  });
+
+  it('keeps a future start date and moves to the requested weekday', () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-03-11T01:00:00Z'));
+    // 2026-04-01 is a Wednesday; next Sunday (7) is 2026-04-05
+    expect(nextOccurrences('2026-04-01', 7, 3)).toEqual(['2026-04-05', '2026-04-12', '2026-04-19']);
+  });
+});

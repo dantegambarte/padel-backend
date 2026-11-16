@@ -17,6 +17,11 @@ import { PricingShift } from '../pricing-shifts/entities/pricing-shift.entity';
 import { CreateFixedBookingDto } from './dto/create-fixed-booking.dto';
 import { UpdateFixedBookingDto } from './dto/update-fixed-booking.dto';
 import { asDbError } from '../../common/utils/db-error.util';
+import {
+  addDaysToIsoDate,
+  dayOfWeekOfIsoDate,
+  todayInAppTimeZone,
+} from '../../common/utils/date.util';
 
 /** Semanas hacia adelante para las que se generan Bookings individuales al crear/activar. */
 const WEEKS_TO_GENERATE = 8;
@@ -135,9 +140,7 @@ export class FixedBookingsService {
       },
     });
     if (conflict && conflict.status !== BookingStatus.CANCELLED) {
-      const next = new Date(dto.startDate + 'T00:00:00');
-      next.setDate(next.getDate() + 7);
-      const nextAvailableDate = next.toISOString().slice(0, 10);
+      const nextAvailableDate = addDaysToIsoDate(dto.startDate, 7);
       throw new ConflictException({
         message: 'CONFLICT_START_DATE',
         nextAvailableDate,
@@ -608,35 +611,25 @@ export class FixedBookingsService {
    * a partir de `startDate` (inclusive si aún no pasó) o desde hoy si startDate ya pasó.
    */
   private getNextOccurrences(startDate: string, dayOfWeek: number, count: number): string[] {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const start = new Date(startDate + 'T00:00:00');
-    const base = start > today ? start : today;
+    const today = todayInAppTimeZone();
+    // Las fechas YYYY-MM-DD se comparan bien como strings.
+    const base = startDate > today ? startDate : today;
 
     const isoToJs = (d: number) => (d === 7 ? 0 : d);
     const target = isoToJs(dayOfWeek);
-    const current = new Date(base);
-
-    let daysAhead = (target - current.getDay() + 7) % 7;
-    if (daysAhead === 0 && current.getDay() !== target) daysAhead = 7;
-    current.setDate(current.getDate() + daysAhead);
+    const daysAhead = (target - dayOfWeekOfIsoDate(base) + 7) % 7;
+    const first = addDaysToIsoDate(base, daysAhead);
 
     const results: string[] = [];
     for (let i = 0; i < count; i++) {
-      results.push(current.toISOString().slice(0, 10));
-      current.setDate(current.getDate() + 7);
+      results.push(addDaysToIsoDate(first, i * 7));
     }
     return results;
   }
 
-  /** Fecha de hoy en formato YYYY-MM-DD usando hora local (UTC-3 safe). */
+  /** Fecha de hoy (YYYY-MM-DD) en la zona horaria del club. */
   private localDateStr(): string {
-    const d = new Date();
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
+    return todayInAppTimeZone();
   }
 
   /**

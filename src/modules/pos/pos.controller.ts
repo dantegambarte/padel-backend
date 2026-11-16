@@ -20,6 +20,7 @@ import { PaySaleDto } from './dto/pay-sale.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
+import { todayInAppTimeZone } from '../../common/utils/date.util';
 
 class SalesQueryDto {
   @IsOptional()
@@ -46,7 +47,7 @@ export class PosController {
   })
   @ApiQuery({ name: 'date', required: false, example: '2025-03-15' })
   findByDate(@Query() query: SalesQueryDto) {
-    const date = query.date ?? new Date().toISOString().split('T')[0];
+    const date = query.date ?? todayInAppTimeZone();
     return this.posService.findByDate(date);
   }
 

@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not, IsNull } from 'typeorm';
 
 import { Booking, BookingStatus } from '../bookings/entities/booking.entity';
+import { addDaysToIsoDate, todayInAppTimeZone } from '../../common/utils/date.util';
 
 export interface ReminderItem {
   bookingId: string;
@@ -126,13 +127,8 @@ export class RemindersService {
     return new Date(y, mo - 1, d, h, min, 0);
   }
 
-  /** Formatea la fecha local (UTC-3 safe) N días desde hoy. */
+  /** Fecha (YYYY-MM-DD) en la zona horaria del club, N días desde hoy. */
   private localDateStr(daysFromNow: number): string {
-    const d = new Date();
-    d.setDate(d.getDate() + daysFromNow);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
+    return addDaysToIsoDate(todayInAppTimeZone(), daysFromNow);
   }
 }

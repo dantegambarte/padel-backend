@@ -5,6 +5,7 @@ import { Repository, ILike } from 'typeorm';
 import { Product } from '../products/entities/product.entity';
 import { Booking, BookingStatus } from '../bookings/entities/booking.entity';
 import { Sale } from '../pos/entities/sale.entity';
+import { todayInAppTimeZone } from '../../common/utils/date.util';
 
 export interface SearchResultItem {
   id: string;
@@ -23,13 +24,6 @@ export interface SearchResponse {
 const MAX_PRODUCTS = 6;
 const MAX_BOOKINGS = 3;
 const MAX_SALES = 6;
-
-/** Fecha de hoy en zona horaria Argentina (YYYY-MM-DD). */
-function todayArgentina(): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Argentina/Buenos_Aires',
-  }).format(new Date());
-}
 
 /**
  * Formatea una fecha YYYY-MM-DD al formato legible "Vie, 11/04/2026".
@@ -71,7 +65,7 @@ export class SearchService {
     const term = q.trim();
     if (!term) return { products: [], bookings: [], sales: [] };
 
-    const today = todayArgentina();
+    const today = todayInAppTimeZone();
 
     const [products, rawBookings, sales] = await Promise.all([
       this.productRepo.find({
