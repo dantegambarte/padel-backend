@@ -36,6 +36,7 @@ export class AuthService {
         'mustChangePassword',
         'passwordHash',
         'sessionVersion',
+        'refreshTokenVersion',
       ],
     });
 
@@ -59,17 +60,16 @@ export class AuthService {
   async login(loginDto: LoginDto) {
     const user = await this.validateUser(loginDto.username, loginDto.password);
 
-    const newSv = process.env.NODE_ENV === 'test' ? user.sessionVersion : user.sessionVersion + 1;
-
-    if (newSv !== user.sessionVersion) {
-      await this.userRepo.update(user.id, { sessionVersion: newSv });
-    }
+    // Cada login abre una sesión nueva e invalida los tokens de la anterior.
+    const newSv = user.sessionVersion + 1;
+    await this.userRepo.update(user.id, { sessionVersion: newSv });
 
     const payload: JwtPayload = {
       sub: user.id,
       username: user.username,
       role: user.role,
       sv: newSv,
+      rv: user.refreshTokenVersion,
     };
 
     const [accessToken, refreshToken] = await this.signTokenPair(payload);
@@ -105,38 +105,74 @@ export class AuthService {
     ]);
   }
 
-  /** Renueva el par de tokens usando el refresh token (rotación). */
+  /**
+   * Renueva el par de tokens usando el refresh token, con rotación:
+   * - El token tiene que pertenecer a la sesión vigente (`sv`).
+   * - Cada refresh incrementa `refreshTokenVersion`, así el token usado deja de servir.
+   * - Presentar un refresh token ya rotado es un reuso (token robado o copiado):
+   *   se revoca la sesión entera incrementando `sessionVersion`.
+   */
   async refreshToken(refreshToken: string) {
+    const invalid = () =>
+      new UnauthorizedException('Refresh token inválido o expirado. Iniciá sesión nuevamente.');
+
+    let payload: JwtPayload;
     try {
-      const payload = await this.jwtService.verifyAsync<JwtPayload>(refreshToken, {
+      payload = await this.jwtService.verifyAsync<JwtPayload>(refreshToken, {
         secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
         algorithms: ['HS256'],
       });
-
-      const user = await this.userRepo.findOne({
-        where: { id: payload.sub },
-        select: ['id', 'username', 'fullName', 'role', 'isActive', 'sessionVersion'],
-      });
-
-      if (!user || !user.isActive) {
-        throw new UnauthorizedException('Sesión inválida.');
-      }
-
-      const newPayload: JwtPayload = {
-        sub: user.id,
-        username: user.username,
-        role: user.role,
-        sv: user.sessionVersion,
-      };
-
-      const [newAccessToken, newRefreshToken] = await this.signTokenPair(newPayload);
-
-      return { accessToken: newAccessToken, refreshToken: newRefreshToken };
     } catch {
-      throw new UnauthorizedException(
-        'Refresh token inválido o expirado. Iniciá sesión nuevamente.',
-      );
+      throw invalid();
     }
+
+    const user = await this.userRepo.findOne({
+      where: { id: payload.sub },
+      select: [
+        'id',
+        'username',
+        'fullName',
+        'role',
+        'isActive',
+        'sessionVersion',
+        'refreshTokenVersion',
+      ],
+    });
+
+    if (!user || !user.isActive || payload.sv !== user.sessionVersion || payload.rv === undefined) {
+      throw invalid();
+    }
+
+    // UPDATE condicional y atómico: sólo un refresh concurrente con este token gana.
+    const nextRv = payload.rv + 1;
+    const rotated = await this.userRepo.update(
+      { id: user.id, sessionVersion: payload.sv, refreshTokenVersion: payload.rv },
+      { refreshTokenVersion: nextRv },
+    );
+
+    if (!rotated.affected) {
+      await this.userRepo.increment({ id: user.id }, 'sessionVersion', 1);
+      this.logger.warn(`Reuso de refresh token detectado: ${user.username}. Sesión revocada.`);
+      throw invalid();
+    }
+
+    const [accessToken, newRefreshToken] = await this.signTokenPair({
+      sub: user.id,
+      username: user.username,
+      role: user.role,
+      sv: user.sessionVersion,
+      rv: nextRv,
+    });
+
+    return { accessToken, refreshToken: newRefreshToken };
+  }
+
+  /**
+   * Cierra la sesión en el servidor: incrementa `sessionVersion`, lo que invalida
+   * en el acto el access token y el refresh token de la sesión actual.
+   */
+  async logout(userId: string): Promise<void> {
+    await this.userRepo.increment({ id: userId }, 'sessionVersion', 1);
   }
 
   /** Retorna el perfil del usuario autenticado sin datos sensibles. */

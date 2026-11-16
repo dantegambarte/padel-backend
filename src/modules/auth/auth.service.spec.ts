@@ -16,6 +16,7 @@ const mockUser = (overrides: Partial<User> = {}): Partial<User> => ({
   mustChangePassword: false,
   passwordHash: 'hashed_password',
   sessionVersion: 3,
+  refreshTokenVersion: 4,
   ...overrides,
 });
 
@@ -117,56 +118,87 @@ describe('AuthService', () => {
       expect(result.user.mustChangePassword).toBe(false);
     });
 
-    it('NO incrementa sessionVersion en login normal (permite sesiones concurrentes)', async () => {
+    it('incrementa sessionVersion en cada login, también con NODE_ENV=test', async () => {
       userRepo.findOne.mockResolvedValue(mockUser({ sessionVersion: 2 }));
       jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
 
       await service.login({ username: 'admin', password: 'pass' });
 
-      expect(userRepo.increment).not.toHaveBeenCalled();
-      expect(userRepo.update).not.toHaveBeenCalled();
+      expect(process.env.NODE_ENV).toBe('test');
+      expect(userRepo.update).toHaveBeenCalledWith('user-uuid', { sessionVersion: 3 });
     });
 
-    it('firma el token con el payload correcto incluyendo sv', async () => {
-      userRepo.findOne.mockResolvedValue(mockUser({ sessionVersion: 5 }));
+    it('firma los tokens con la nueva sv y la rv vigente', async () => {
+      userRepo.findOne.mockResolvedValue(mockUser({ sessionVersion: 5, refreshTokenVersion: 9 }));
       jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
 
       await service.login({ username: 'admin', password: 'pass' });
 
       expect(jwtService.signAsync).toHaveBeenCalledWith(
-        expect.objectContaining({ sub: 'user-uuid', sv: 5 }),
+        expect.objectContaining({ sub: 'user-uuid', sv: 6, rv: 9 }),
         expect.any(Object),
       );
     });
   });
 
   describe('refreshToken', () => {
-    it('retorna nuevo par de tokens si el refresh token es válido', async () => {
-      const user = mockUser();
-      jwtService.verifyAsync.mockResolvedValue({
-        sub: user.id,
-        username: user.username,
-        role: user.role,
-        sv: user.sessionVersion,
-      });
-      userRepo.findOne.mockResolvedValue(user);
-
-      const result = await service.refreshToken('valid_refresh');
-      expect(result).toHaveProperty('accessToken');
-      expect(result).toHaveProperty('refreshToken');
+    const tokenFor = (user: Partial<User>, overrides: Record<string, unknown> = {}) => ({
+      sub: user.id,
+      username: user.username,
+      role: user.role,
+      sv: user.sessionVersion,
+      rv: user.refreshTokenVersion,
+      ...overrides,
     });
 
-    it('el nuevo token incluye la sessionVersion actual de la DB', async () => {
-      const user = mockUser({ sessionVersion: 7 });
-      jwtService.verifyAsync.mockResolvedValue({ sub: user.id, sv: 5 });
+    it('rota el refresh token: incrementa rv con un UPDATE condicional y firma el par nuevo', async () => {
+      const user = mockUser();
+      jwtService.verifyAsync.mockResolvedValue(tokenFor(user));
       userRepo.findOne.mockResolvedValue(user);
+      userRepo.update.mockResolvedValue({ affected: 1 });
 
-      await service.refreshToken('valid_refresh');
+      const result = await service.refreshToken('valid_refresh');
 
+      expect(result).toEqual({ accessToken: 'signed_token', refreshToken: 'signed_token' });
+      expect(userRepo.update).toHaveBeenCalledWith(
+        { id: 'user-uuid', sessionVersion: 3, refreshTokenVersion: 4 },
+        { refreshTokenVersion: 5 },
+      );
       expect(jwtService.signAsync).toHaveBeenCalledWith(
-        expect.objectContaining({ sv: 7 }),
+        expect.objectContaining({ sv: 3, rv: 5 }),
         expect.any(Object),
       );
+      expect(userRepo.increment).not.toHaveBeenCalled();
+    });
+
+    it('detecta el reuso de un refresh token ya rotado y revoca la sesión', async () => {
+      const user = mockUser();
+      jwtService.verifyAsync.mockResolvedValue(tokenFor(user, { rv: 3 }));
+      userRepo.findOne.mockResolvedValue(user);
+      userRepo.update.mockResolvedValue({ affected: 0 });
+
+      await expect(service.refreshToken('reused')).rejects.toThrow(UnauthorizedException);
+      expect(userRepo.increment).toHaveBeenCalledWith({ id: 'user-uuid' }, 'sessionVersion', 1);
+      expect(jwtService.signAsync).not.toHaveBeenCalled();
+    });
+
+    it('rechaza un refresh token de una sesión anterior (después de login o logout)', async () => {
+      const user = mockUser({ sessionVersion: 7 });
+      jwtService.verifyAsync.mockResolvedValue(tokenFor(user, { sv: 5 }));
+      userRepo.findOne.mockResolvedValue(user);
+
+      await expect(service.refreshToken('old_session')).rejects.toThrow(UnauthorizedException);
+      expect(userRepo.update).not.toHaveBeenCalled();
+      expect(jwtService.signAsync).not.toHaveBeenCalled();
+    });
+
+    it('rechaza un refresh token emitido antes de la rotación (sin rv)', async () => {
+      const user = mockUser();
+      jwtService.verifyAsync.mockResolvedValue(tokenFor(user, { rv: undefined }));
+      userRepo.findOne.mockResolvedValue(user);
+
+      await expect(service.refreshToken('legacy')).rejects.toThrow(UnauthorizedException);
+      expect(userRepo.update).not.toHaveBeenCalled();
     });
 
     it('lanza UnauthorizedException si el token es inválido', async () => {
@@ -175,15 +207,23 @@ describe('AuthService', () => {
     });
 
     it('lanza UnauthorizedException si el usuario está inactivo', async () => {
-      jwtService.verifyAsync.mockResolvedValue({ sub: 'uid', username: 'x', role: 'admin', sv: 1 });
-      userRepo.findOne.mockResolvedValue(mockUser({ isActive: false }));
+      const user = mockUser({ isActive: false });
+      jwtService.verifyAsync.mockResolvedValue(tokenFor(user));
+      userRepo.findOne.mockResolvedValue(user);
       await expect(service.refreshToken('token')).rejects.toThrow(UnauthorizedException);
     });
 
     it('lanza UnauthorizedException si el usuario no existe en DB', async () => {
-      jwtService.verifyAsync.mockResolvedValue({ sub: 'uid', sv: 1 });
+      jwtService.verifyAsync.mockResolvedValue({ sub: 'uid', sv: 1, rv: 0 });
       userRepo.findOne.mockResolvedValue(null);
       await expect(service.refreshToken('token')).rejects.toThrow(UnauthorizedException);
+    });
+  });
+
+  describe('logout', () => {
+    it('incrementa sessionVersion para invalidar los tokens de la sesión', async () => {
+      await service.logout('user-uuid');
+      expect(userRepo.increment).toHaveBeenCalledWith({ id: 'user-uuid' }, 'sessionVersion', 1);
     });
   });
 
