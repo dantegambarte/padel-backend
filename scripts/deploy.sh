@@ -10,7 +10,7 @@
 #    BRANCH       branch to deploy                    (default: production)
 #    PM2_CONFIG   PM2 ecosystem file inside APP_DIR   (default: ecosystem.config.cjs)
 #    PM2_APP      PM2 process name                    (default: padel-backend)
-#    HEALTH_URL   URL that must answer 401            (default: http://127.0.0.1:3002/api/v1/auth/me)
+#    HEALTH_URL   URL that must answer 200            (default: http://127.0.0.1:3002/api/v1/health)
 #    SKIP_PULL=1  deploy the current checkout without fetching
 #    SKIP_PM2=1   stop after migrations (no PM2 restart, no health check)
 #
@@ -31,7 +31,7 @@ APP_DIR="${APP_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 BRANCH="${BRANCH:-production}"
 PM2_CONFIG="${PM2_CONFIG:-ecosystem.config.cjs}"
 PM2_APP="${PM2_APP:-padel-backend}"
-HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:3002/api/v1/auth/me}"
+HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:3002/api/v1/health}"
 SKIP_PULL="${SKIP_PULL:-0}"
 SKIP_PM2="${SKIP_PM2:-0}"
 
@@ -104,12 +104,12 @@ pm2 save > /dev/null
 HTTP_CODE="000"
 for _ in $(seq 1 15); do
   HTTP_CODE="$(curl -s -o /dev/null -w '%{http_code}' "$HEALTH_URL" || true)"
-  [ "$HTTP_CODE" = "401" ] && break
+  [ "$HTTP_CODE" = "200" ] && break
   sleep 2
 done
 
-if [ "$HTTP_CODE" = "401" ]; then
-  echo -e "${GREEN}✓ API answering (HTTP 401 expected on $HEALTH_URL)${NC}"
+if [ "$HTTP_CODE" = "200" ]; then
+  echo -e "${GREEN}✓ API and database healthy (HTTP 200 on $HEALTH_URL)${NC}"
 else
   echo -e "${RED}Health check returned HTTP $HTTP_CODE.${NC}" >&2
   echo "  Logs:     pm2 logs $PM2_APP --lines 100 --nostream" >&2
