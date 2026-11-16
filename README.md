@@ -239,7 +239,10 @@ El seed es **idempotente**: se puede correr las veces que haga falta sobre la mi
 ```bash
 pnpm run lint   # ESLint 10 (flat config, eslint.config.mjs) con --fix
 pnpm test       # Jest 30
+pnpm test:cov   # Jest con cobertura; falla si baja del umbral (lo corre el CI)
 ```
+
+Los umbrales de cobertura están en `coverageThreshold` de `jest.config.js`: el piso actual global y por módulo crítico (auth, cash-register, pos). Si la cobertura sube, subí también el umbral.
 
 El proyecto usa **ESLint flat config** (`eslint.config.mjs`) integrado con Prettier vía `eslint-plugin-prettier` y `eslint-config-prettier`.
 
