@@ -8,7 +8,11 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import * as request from 'supertest';
 import { AppModule } from '../../app.module';
-import { THROTTLE_LIMITS } from '../../config/throttle-limits';
+import { resolveThrottleLimits } from '../../config/throttle-limits';
+
+// Production global limit: CI relaxes the live limits (E2E_RELAX_THROTTLE=1),
+// so derive the request count from the unrelaxed values instead.
+const PRODUCTION_GLOBAL_LIMIT = resolveThrottleLimits({ NODE_ENV: 'production' }).global;
 
 describe('GET /health (e2e)', () => {
   let app: INestApplication;
@@ -34,8 +38,8 @@ describe('GET /health (e2e)', () => {
 
   it('no aplica el rate limit global', async () => {
     const server = app.getHttpServer();
-    for (let i = 0; i <= THROTTLE_LIMITS.global; i++) {
+    for (let i = 0; i <= PRODUCTION_GLOBAL_LIMIT; i++) {
       await request(server).get('/api/v1/health').expect(200);
     }
-  });
+  }, 30_000);
 });
