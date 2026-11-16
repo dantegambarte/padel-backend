@@ -250,12 +250,23 @@ El proyecto usa **ESLint flat config** (`eslint.config.mjs`) integrado con Prett
 | API      | `http://localhost:3000/api/v1`   |
 | Swagger  | `http://localhost:3000/api/docs` |
 
+### Monitoreo
+
+`GET /api/v1/health` es público (sin token) y no tiene rate limiting. Ejecuta `SELECT 1` contra Postgres con un timeout de 2 s:
+
+| Estado      | HTTP | Body                                  |
+| ----------- | ---- | ------------------------------------- |
+| Base arriba | 200  | `{ "status": "ok", "db": "up" }`      |
+| Base caída  | 503  | `{ "status": "error", "db": "down" }` |
+
+`scripts/deploy.sh` lo usa como health check (exige 200) y es el endpoint a consultar desde PM2, Nginx o un monitor externo.
+
 ---
 
 ## Módulos y endpoints
 
 > **Base URL:** `/api/v1`
-> Todos los endpoints (excepto login y refresh) requieren `Authorization: Bearer <token>`.
+> Todos los endpoints (excepto login, refresh y health) requieren `Authorization: Bearer <token>`.
 
 ---
 
