@@ -72,8 +72,8 @@ jobs:
       DB_USERNAME: padel_user
       DB_PASSWORD: padel_ci_password
       DB_DATABASE: padelsys_test
-      JWT_SECRET: ci-dummy-jwt-secret-0123456789abcdef0123456789
-      JWT_REFRESH_SECRET: ci-dummy-refresh-secret-0123456789abcdef01234
+      JWT_SECRET: ci-dummy-jwt-secret-0123456789abcdef0123456789 # gitleaks:allow
+      JWT_REFRESH_SECRET: ci-dummy-refresh-secret-0123456789abcdef01234 # gitleaks:allow
       JWT_EXPIRES_IN: 8h
       JWT_REFRESH_EXPIRES_IN: 7d
       CORS_ORIGIN: http://localhost:4200
@@ -103,7 +103,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: pnpm
       - run: pnpm audit --prod --audit-level high
 
   secrets:
