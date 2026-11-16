@@ -33,3 +33,4 @@ skills-lock.json
 # Scripts del VPS (Ignorados por seguridad)
 run-studio.sh
 *.sh
+coverage/
