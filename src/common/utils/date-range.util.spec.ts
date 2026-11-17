@@ -36,6 +36,10 @@ describe('resolveListDateRange', () => {
     );
   });
 
+  it('rejects a malformed date', () => {
+    expect(() => resolveListDateRange('01/02/2026', undefined, NOW)).toThrow(BadRequestException);
+  });
+
   it('rejects from after to', () => {
     expect(() => resolveListDateRange('2026-02-10', '2026-02-01', NOW)).toThrow(
       BadRequestException,

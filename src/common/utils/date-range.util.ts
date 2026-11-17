@@ -4,6 +4,8 @@ import { addDaysToIsoDate, todayInAppTimeZone } from './date.util';
 /** Widest date range a list endpoint accepts, in days. */
 export const MAX_LIST_RANGE_DAYS = 366;
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
 export interface IsoDateRange {
   from: string;
   to: string;
@@ -26,6 +28,10 @@ export function resolveListDateRange(
   const monthEnd = addDaysToIsoDate(nextMonthStart, -1);
 
   const range = { from: from ?? monthStart, to: to ?? monthEnd };
+
+  if (!ISO_DATE.test(range.from) || !ISO_DATE.test(range.to)) {
+    throw new BadRequestException('Las fechas deben tener formato YYYY-MM-DD.');
+  }
 
   if (range.from > range.to) {
     throw new BadRequestException('La fecha "desde" no puede ser posterior a "hasta".');
