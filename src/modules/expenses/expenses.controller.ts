@@ -48,8 +48,18 @@ export class ExpensesController {
   @Get()
   @Roles(UserRole.ADMIN, UserRole.EMPLOYEE)
   @ApiOperation({ summary: 'Listar egresos' })
-  @ApiQuery({ name: 'from', required: false, example: '2025-03-01' })
-  @ApiQuery({ name: 'to', required: false, example: '2025-03-31' })
+  @ApiQuery({
+    name: 'from',
+    required: false,
+    example: '2025-03-01',
+    description: 'Defaults to the first day of the current month. Range max 366 days.',
+  })
+  @ApiQuery({
+    name: 'to',
+    required: false,
+    example: '2025-03-31',
+    description: 'Defaults to the last day of the current month.',
+  })
   findAll(@CurrentUser() user: User, @Query('from') from?: string, @Query('to') to?: string) {
     return this.expensesService.findAll({ role: user.role, userId: user.id, from, to });
   }

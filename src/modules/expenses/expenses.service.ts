@@ -13,6 +13,7 @@ import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
 import { CashRegisterService } from '../cash-register/cash-register.service';
 import { UserRole } from '../users/entities/user.entity';
+import { resolveListDateRange } from '../../common/utils/date-range.util';
 
 /** Categorías que solo el administrador puede registrar. */
 const ADMIN_ONLY_CATEGORIES = new Set<ExpenseCategory>([ExpenseCategory.SALARY]);
@@ -106,12 +107,8 @@ export class ExpensesService {
       .orderBy('expense.createdAt', 'DESC');
 
     if (options.role === UserRole.ADMIN) {
-      if (options.from) {
-        qb.andWhere('expense.date >= :from', { from: options.from });
-      }
-      if (options.to) {
-        qb.andWhere('expense.date <= :to', { to: options.to });
-      }
+      const { from, to } = resolveListDateRange(options.from, options.to);
+      qb.andWhere('expense.date >= :from', { from }).andWhere('expense.date <= :to', { to });
     } else {
       const sessionData = await this.cashRegisterService.getCurrentSession();
       if (!sessionData.session || !sessionData.isOpen) {

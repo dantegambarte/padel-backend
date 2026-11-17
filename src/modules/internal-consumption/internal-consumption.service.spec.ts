@@ -271,6 +271,39 @@ describe('InternalConsumptionService', () => {
       );
     });
 
+    it('bounds the list to a date range when no dates are sent', async () => {
+      const qb = makeQbMock([]);
+
+      await service.findAll({}, adminUser);
+
+      expect(qb.andWhere).toHaveBeenCalledWith(
+        expect.stringContaining('BETWEEN'),
+        expect.objectContaining({ dateFrom: expect.any(String), dateTo: expect.any(String) }),
+      );
+    });
+
+    it('lists every pending debt without a date bound', async () => {
+      const qb = makeQbMock([]);
+
+      await service.findAll(
+        { status: InternalConsumptionStatus.PENDING_PAYMENT, teacherId: 'teacher-uuid-001' },
+        adminUser,
+      );
+
+      expect(qb.andWhere).not.toHaveBeenCalledWith(
+        expect.stringContaining('BETWEEN'),
+        expect.anything(),
+      );
+    });
+
+    it('rejects a date range wider than a year', async () => {
+      makeQbMock([]);
+
+      await expect(
+        service.findAll({ dateFrom: '2024-01-01', dateTo: '2026-01-01' }, adminUser),
+      ).rejects.toThrow(BadRequestException);
+    });
+
     it('applies teacherId filter', async () => {
       const qb = makeQbMock([]);
 
