@@ -104,7 +104,7 @@ export class AuthController {
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   @UseGuards(ThrottlerGuard)
-  @Throttle({ default: { ttl: 60_000, limit: 20 } })
+  @Throttle({ default: { ttl: 60_000, limit: THROTTLE_LIMITS.refresh } })
   @ApiOperation({ summary: 'Renovar access token (usa la cookie refresh_token)' })
   @ApiCookieAuth(REFRESH_COOKIE_NAME)
   @ApiBody({
