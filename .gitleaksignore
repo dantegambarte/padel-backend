@@ -1,2 +1,5 @@
 # Dummy JWT secret for the CI e2e job, flagged in the commit that added it.
 68b7d049195261d4a292cf03aeb41ce550e54500:.github/workflows/ci.yml:generic-api-key:69
+# Placeholder secrets in the route coverage spec, replaced in the next commit.
+cce739b55d921f5985ae351adf0a01b385893746:src/route-auth-coverage.spec.ts:generic-api-key:17
+cce739b55d921f5985ae351adf0a01b385893746:src/route-auth-coverage.spec.ts:generic-api-key:18

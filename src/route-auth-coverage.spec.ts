@@ -14,8 +14,8 @@ const PLACEHOLDER_ENV: Record<string, string> = {
   DB_USERNAME: 'placeholder',
   DB_PASSWORD: 'placeholder',
   DB_DATABASE: 'placeholder',
-  JWT_SECRET: 'placeholder-secret-placeholder-secret-0001',
-  JWT_REFRESH_SECRET: 'placeholder-secret-placeholder-secret-0002',
+  JWT_SECRET: 'x'.repeat(32),
+  JWT_REFRESH_SECRET: 'y'.repeat(32),
 };
 for (const [key, value] of Object.entries(PLACEHOLDER_ENV)) process.env[key] ??= value;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
