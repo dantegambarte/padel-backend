@@ -6,7 +6,6 @@ import {
   Delete,
   Body,
   Param,
-  UseGuards,
   ParseUUIDPipe,
   HttpCode,
   HttpStatus,
@@ -17,15 +16,12 @@ import { FixedBookingsService } from './fixed-bookings.service';
 import { CreateFixedBookingDto } from './dto/create-fixed-booking.dto';
 import { UpdateFixedBookingDto } from './dto/update-fixed-booking.dto';
 
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { User, UserRole } from '../users/entities/user.entity';
 
 @ApiTags('Turnos Fijos')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN)
 @Controller('fixed-bookings')
 export class FixedBookingsController {

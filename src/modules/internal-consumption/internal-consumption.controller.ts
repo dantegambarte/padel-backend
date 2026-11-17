@@ -6,14 +6,11 @@ import {
   Body,
   Param,
   Query,
-  UseGuards,
   ParseUUIDPipe,
   HttpCode,
   HttpStatus,
   ForbiddenException,
 } from '@nestjs/common';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { UserRole } from '../users/entities/user.entity';
@@ -24,7 +21,6 @@ import { CreateInternalConsumptionDto } from './dto/create-internal-consumption.
 import { QueryInternalConsumptionDto } from './dto/query-internal-consumption.dto';
 import { SettleTeacherDebtDto } from './dto/settle-teacher-debt.dto';
 
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN)
 @Controller('internal-consumption')
 export class InternalConsumptionController {

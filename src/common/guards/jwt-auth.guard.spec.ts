@@ -1,12 +1,13 @@
 import { UnauthorizedException } from '@nestjs/common';
 import { TokenExpiredError, JsonWebTokenError } from '@nestjs/jwt';
+import { Reflector } from '@nestjs/core';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
 describe('JwtAuthGuard', () => {
   let guard: JwtAuthGuard;
 
   beforeEach(() => {
-    guard = new JwtAuthGuard();
+    guard = new JwtAuthGuard(new Reflector());
   });
 
   it('retorna el usuario si el token es válido', () => {

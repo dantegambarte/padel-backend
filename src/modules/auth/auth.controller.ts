@@ -13,7 +13,7 @@ import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { ChangeOwnPasswordDto } from './dto/change-own-password.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
 import { IsString, IsNotEmpty } from 'class-validator';
@@ -37,6 +37,7 @@ export class AuthController {
    * Endpoint público. Devuelve accessToken + refreshToken + datos del usuario.
    * Limitado a 5 intentos por minuto por IP para frenar fuerza bruta.
    */
+  @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @UseGuards(ThrottlerGuard)
@@ -51,6 +52,7 @@ export class AuthController {
    * Renueva el par de tokens. El interceptor de Angular lo llama automáticamente.
    * Limitado a 20 intentos por minuto por IP.
    */
+  @Public()
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   @UseGuards(ThrottlerGuard)
@@ -67,7 +69,6 @@ export class AuthController {
    */
   @Post('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Cerrar sesión' })
   async logout(@CurrentUser('id') userId: string): Promise<void> {
@@ -80,7 +81,6 @@ export class AuthController {
    * El Angular lo usa al recargar la página para restaurar la sesión.
    */
   @Get('me')
-  @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Obtener perfil del usuario autenticado' })
   async getProfile(@CurrentUser() user: User) {
@@ -95,7 +95,6 @@ export class AuthController {
    */
   @Patch('me/password')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Cambiar contraseña propia' })
   async changeOwnPassword(@CurrentUser('id') userId: string, @Body() dto: ChangeOwnPasswordDto) {

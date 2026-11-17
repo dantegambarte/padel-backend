@@ -7,7 +7,6 @@ import {
   Param,
   Query,
   Headers,
-  UseGuards,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
@@ -17,7 +16,6 @@ import { PosService } from './pos.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
 import { AddSaleItemsDto } from './dto/add-sale-items.dto';
 import { PaySaleDto } from './dto/pay-sale.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
 import { todayInAppTimeZone } from '../../common/utils/date.util';
@@ -30,7 +28,6 @@ class SalesQueryDto {
 
 @ApiTags('POS / Ventas')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
 @Controller('sales')
 export class PosController {
   constructor(private readonly posService: PosService) {}
