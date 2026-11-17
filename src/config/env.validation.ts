@@ -32,6 +32,12 @@ export const envValidationSchema = Joi.object({
     'any.required': 'DB_DATABASE es obligatorio.',
   }),
 
+  // Pool de conexiones de `pg` (por instancia de PM2) y timeouts, en milisegundos.
+  DB_POOL_MAX: Joi.number().integer().min(1).max(100).default(10),
+  DB_CONNECTION_TIMEOUT_MS: Joi.number().integer().min(100).default(5000),
+  DB_IDLE_TIMEOUT_MS: Joi.number().integer().min(1000).default(30000),
+  DB_STATEMENT_TIMEOUT_MS: Joi.number().integer().min(1000).default(30000),
+
   JWT_SECRET: Joi.string().min(32).required().messages({
     'any.required': 'JWT_SECRET es obligatorio (mínimo 32 caracteres).',
     'string.min': 'JWT_SECRET debe tener al menos 32 caracteres por seguridad.',
