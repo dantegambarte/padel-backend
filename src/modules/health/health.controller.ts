@@ -2,14 +2,16 @@ import { Controller, Get, HttpStatus, Res } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 import type { Response } from 'express';
+import { Public } from '../../common/decorators/public.decorator';
 import { HealthService } from './health.service';
 
 /**
  * GET /api/v1/health
- * Public (no JwtAuthGuard) and exempt from rate limiting so deploy scripts,
+ * Public (@Public skips the global JwtAuthGuard) and exempt from rate limiting so deploy scripts,
  * PM2 and Nginx can poll it. 200 when Postgres answers, 503 otherwise.
  */
 @ApiTags('Health')
+@Public()
 @SkipThrottle()
 @Controller('health')
 export class HealthController {

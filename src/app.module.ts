@@ -9,6 +9,8 @@ import { ThrottlerGuard } from '@nestjs/throttler';
 import { databaseConfig } from './config/database.config';
 import { envValidationSchema } from './config/env.validation';
 import { THROTTLE_LIMITS } from './config/throttle-limits';
+import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { RolesGuard } from './common/guards/roles.guard';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
 import { AuthModule } from './modules/auth/auth.module';
@@ -87,6 +89,15 @@ import { HealthModule } from './modules/health/health.module';
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
+    },
+    // Authentication is on by default: opt out per route with @Public().
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: RolesGuard,
     },
     {
       provide: APP_FILTER,

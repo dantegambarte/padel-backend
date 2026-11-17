@@ -7,7 +7,6 @@ import {
   Body,
   Param,
   Query,
-  UseGuards,
   ParseUUIDPipe,
   ParseBoolPipe,
   DefaultValuePipe,
@@ -28,14 +27,11 @@ import { TeachersService } from './teachers.service';
 import { CreateTeacherDto } from './dto/create-teacher.dto';
 import { UpdateTeacherDto } from './dto/update-teacher.dto';
 import { LiquidateTeacherDto } from './dto/liquidate-teacher.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../users/entities/user.entity';
 
 @ApiTags('Profesores')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
 @Controller('teachers')
 export class TeachersController {
   constructor(private readonly teachersSvc: TeachersService) {}
@@ -75,7 +71,6 @@ export class TeachersController {
    * "report" como un UUID.
    */
   @Get(':id/report')
-  @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.EMPLOYEE)
   @ApiOperation({ summary: 'Reporte de liquidación de un profesor (admin, empleado)' })
   @ApiParam({ name: 'id', type: 'string', format: 'uuid' })
@@ -103,7 +98,6 @@ export class TeachersController {
    * Requiere caja abierta.
    */
   @Post('liquidate')
-  @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.EMPLOYEE)
   @ApiOperation({ summary: 'Liquidar deuda unificada de un profesor (admin, empleado)' })
   liquidate(@Body() dto: LiquidateTeacherDto, @CurrentUser('id') userId: string) {
@@ -111,7 +105,6 @@ export class TeachersController {
   }
 
   @Post()
-  @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Crear profesor (admin)' })
   create(@Body() dto: CreateTeacherDto) {
@@ -119,7 +112,6 @@ export class TeachersController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Actualizar profesor (admin)' })
   @ApiParam({ name: 'id', type: 'string', format: 'uuid' })
@@ -132,7 +124,6 @@ export class TeachersController {
    * Soft-delete: marca isActive = false.
    */
   @Delete(':id')
-  @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Desactivar profesor (admin)' })

@@ -7,7 +7,6 @@ import {
   Body,
   Param,
   Query,
-  UseGuards,
   ParseUUIDPipe,
   HttpCode,
   HttpStatus,
@@ -18,8 +17,6 @@ import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { QueryProductsDto } from './dto/query-products.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { UserRole } from '../users/entities/user.entity';
@@ -27,7 +24,6 @@ import { Product } from './entities/product.entity';
 
 @ApiTags('Productos')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
 @Controller('products')
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
@@ -108,7 +104,6 @@ export class ProductsController {
    * Crea una categoría si no existe (idempotente por nombre).
    */
   @Post('categories')
-  @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Crear categoría de producto (solo admin)' })
@@ -124,7 +119,6 @@ export class ProductsController {
    * Estadísticas de inventario para el widget de la página de Productos.
    */
   @Get('summary')
-  @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Resumen estadístico del inventario (solo admin)' })
   getSummary() {
@@ -143,7 +137,6 @@ export class ProductsController {
    * POST /api/v1/products — Solo Admin
    */
   @Post()
-  @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Crear producto (solo admin)' })
@@ -157,7 +150,6 @@ export class ProductsController {
    * Usado para editar datos Y para ajustes manuales de stock (reposición).
    */
   @Patch(':id')
-  @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiOperation({
     summary: 'Actualizar producto (solo admin)',
@@ -173,7 +165,6 @@ export class ProductsController {
    * Baja lógica: isActive = false. El producto queda en el historial.
    */
   @Delete(':id')
-  @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Desactivar producto (baja lógica, solo admin)' })

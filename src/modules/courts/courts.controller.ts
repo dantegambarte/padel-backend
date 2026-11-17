@@ -7,7 +7,6 @@ import {
   Body,
   Param,
   Query,
-  UseGuards,
   ParseUUIDPipe,
   HttpCode,
   HttpStatus,
@@ -15,14 +14,11 @@ import {
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { CourtsService } from './courts.service';
 import { CreateCourtDto, UpdateCourtDto } from './dto/create-court.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../users/entities/user.entity';
 
 @ApiTags('Canchas')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
 @Controller('courts')
 export class CourtsController {
   constructor(private readonly courtsService: CourtsService) {}
@@ -46,7 +42,6 @@ export class CourtsController {
   }
 
   @Post()
-  @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Crear una nueva cancha (solo admin)' })
   create(@Body() dto: CreateCourtDto) {
@@ -54,7 +49,6 @@ export class CourtsController {
   }
 
   @Patch(':id')
-  @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Actualizar una cancha (solo admin)' })
   update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateCourtDto) {
@@ -63,7 +57,6 @@ export class CourtsController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Eliminar una cancha (solo admin)' })
   remove(@Param('id', ParseUUIDPipe) id: string) {

@@ -7,7 +7,6 @@ import {
   Body,
   Param,
   Query,
-  UseGuards,
   ParseUUIDPipe,
   HttpCode,
   HttpStatus,
@@ -29,15 +28,12 @@ import { CreateBookingDto } from './dto/create-booking.dto';
 import { UpdateBookingDto } from './dto/update-booking.dto';
 import { QueryBookingsDto } from './dto/query-bookings.dto';
 
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { User, UserRole } from '../users/entities/user.entity';
 
 @ApiTags('Agenda / Turnos')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
 @Controller('bookings')
 export class BookingsController {
   constructor(private readonly bookingsService: BookingsService) {}
@@ -73,7 +69,6 @@ export class BookingsController {
    */
   @Post('migration/backfill-shift-names')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiOperation({
     summary: '[Admin] Backfill de nombres de franja horaria',
@@ -100,7 +95,6 @@ export class BookingsController {
    * Acceso: Solo Admin.
    */
   @Get('pending-expected-deposits')
-  @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.EMPLOYEE)
   @ApiOperation({
     summary: 'Señas recurrentes pendientes de confirmación',
@@ -231,7 +225,6 @@ export class BookingsController {
    * Acceso: Solo Admin.
    */
   @Post(':id/confirm-expected-deposit')
-  @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -257,7 +250,6 @@ export class BookingsController {
    * SOLO ADMIN: un empleado no puede cancelar turnos pagados.
    */
   @Delete(':id')
-  @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({

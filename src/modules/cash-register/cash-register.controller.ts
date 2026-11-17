@@ -7,7 +7,6 @@ import {
   Query,
   Param,
   Res,
-  UseGuards,
   HttpCode,
   HttpStatus,
   BadRequestException,
@@ -25,8 +24,6 @@ import { IsOptional, Matches } from 'class-validator';
 import { CashRegisterService } from './cash-register.service';
 import { CloseSessionDto } from './dto/close-session.dto';
 import { OpenSessionDto } from './dto/open-session.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { User, UserRole } from '../users/entities/user.entity';
@@ -39,7 +36,6 @@ class CashQueryDto {
 
 @ApiTags('Caja')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
 @Controller('cash')
 export class CashRegisterController {
   constructor(private readonly cashRegisterService: CashRegisterService) {}
@@ -157,7 +153,6 @@ export class CashRegisterController {
    */
   @Post('daily-closures')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.EMPLOYEE)
   @ApiOperation({
     summary: 'Cierre de Jornada Completa — Crear cierre diario',
@@ -185,7 +180,6 @@ export class CashRegisterController {
    * Acceso: solo Admin.
    */
   @Get('daily-summary')
-  @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiOperation({
     summary: 'Consolidado diario — Cierre Z del Administrador',
@@ -216,7 +210,6 @@ export class CashRegisterController {
    * Acceso: Admin.
    */
   @Get('export/session/:id')
-  @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiOperation({
     summary: 'Exportar Turno X a Excel',
@@ -248,7 +241,6 @@ export class CashRegisterController {
    * Acceso: Admin.
    */
   @Get('export/daily')
-  @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiOperation({
     summary: 'Exportar Jornada Z a Excel',

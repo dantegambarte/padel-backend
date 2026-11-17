@@ -9,21 +9,17 @@ import {
   ParseUUIDPipe,
   HttpCode,
   HttpStatus,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
 
 import { PricingShiftsService } from './pricing-shifts.service';
 import { CreatePricingShiftDto } from './dto/create-pricing-shift.dto';
 import { UpdatePricingShiftDto } from './dto/update-pricing-shift.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../users/entities/user.entity';
 
 @ApiTags('Franjas Horarias de Precios')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN)
 @Controller('pricing-shifts')
 export class PricingShiftsController {

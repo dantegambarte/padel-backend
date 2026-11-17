@@ -1,14 +1,12 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 
 import { SearchService } from './search.service';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { THROTTLE_LIMITS } from '../../config/throttle-limits';
 
 @ApiTags('Búsqueda Global')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
 @Controller('search')
 export class SearchController {
   constructor(private readonly searchService: SearchService) {}
