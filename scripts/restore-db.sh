@@ -23,7 +23,7 @@ fail() {
 env_value() {
   local key="$1"
   [ -f "$APP_DIR/.env" ] || return 0
-  grep -E "^${key}=" "$APP_DIR/.env" | tail -n 1 | cut -d= -f2- | sed -e 's/^["'\'']//' -e 's/["'\'']$//' -e 's/\r$//'
+  { grep -E "^${key}=" "$APP_DIR/.env" || true; } | tail -n 1 | cut -d= -f2- | sed -e 's/^["'\'']//' -e 's/["'\'']$//' -e 's/\r$//'
 }
 
 [ $# -eq 2 ] || fail "usage: bash scripts/restore-db.sh <file.dump> <target-database>"
