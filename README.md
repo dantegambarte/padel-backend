@@ -317,6 +317,7 @@ Gestión de sesión y tokens JWT.
 | ------ | ------------------- | ----------- | --------------------------- |
 | POST   | `/auth/login`       | Público     | Login con username/password |
 | POST   | `/auth/refresh`     | Público     | Renovar par de tokens       |
+| POST   | `/auth/logout`      | Autenticado | Cerrar sesión y borrar la cookie |
 | GET    | `/auth/me`          | Autenticado | Perfil del usuario actual   |
 | PATCH  | `/auth/me/password` | Autenticado | Cambiar contraseña propia   |
 
@@ -325,20 +326,31 @@ Gestión de sesión y tokens JWT.
 **Flujo de autenticación:**
 
 ```
-Login → access_token (8h) + refresh_token (7d)
-         ↓ expira
-Refresh → nuevo access_token + nuevo refresh_token (rotación)
+Login   → body: accessToken (8h) · cookie HttpOnly refresh_token (7d)
+           ↓ expira
+Refresh → lee la cookie refresh_token → body: nuevo accessToken · cookie rotada
+Logout  → invalida la sesión y borra la cookie
 ```
+
+El refresh token **nunca** viaja en el body de las respuestas: va en la cookie
+`refresh_token` con `HttpOnly; SameSite=Strict; Path=/api/v1/auth`, `Max-Age`
+igual a `JWT_REFRESH_EXPIRES_IN` y `Secure` cuando `NODE_ENV=production`. El
+cliente tiene que mandar las llamadas de auth con credenciales
+(`withCredentials: true` en Angular).
+
+**Transitorio (una release):** `POST /auth/refresh` todavía acepta
+`{ "refreshToken": "..." }` en el body si no llega la cookie. Se va a quitar.
 
 **Respuesta de login:**
 
 ```json
 {
-  "access_token": "eyJ...",
-  "refresh_token": "eyJ...",
+  "accessToken": "eyJ...",
   "user": { "id": "uuid", "username": "admin", "role": "ADMIN" }
 }
 ```
+
+**Respuesta de refresh:** `{ "accessToken": "eyJ..." }`
 
 **Cambio de contraseña propia (`PATCH /auth/me/password`):**
 
@@ -900,6 +912,7 @@ PricingShift  (tabla de lookup, sin FK a otras entidades)
 - **Refresh token:** 7 días (secret independiente)
 - **Payload:** `{ sub, username, role, sessionVersion }`
 - **Rotación:** cada refresh genera un par de tokens completamente nuevo
+- **Transporte del refresh token:** cookie `refresh_token` HttpOnly (nunca en el body)
 
 ### Sesión única (single-session enforcement)
 
