@@ -16,6 +16,7 @@ import { Product } from '../products/entities/product.entity';
 import { CashRegisterService } from '../cash-register/cash-register.service';
 import { Transaction, TransactionType } from '../cash-register/entities/transaction.entity';
 import { asDbError } from '../../common/utils/db-error.util';
+import { resolveListDateRange } from '../../common/utils/date-range.util';
 
 @Injectable()
 export class InternalConsumptionService {
@@ -125,11 +126,15 @@ export class InternalConsumptionService {
       qb.andWhere('ic.consumerType = :consumerType', { consumerType: query.consumerType });
     if (query.teacherId) qb.andWhere('ic.teacher_id = :teacherId', { teacherId: query.teacherId });
     if (query.userId) qb.andWhere('ic.user_id = :userId', { userId: query.userId });
-    if (query.dateFrom && query.dateTo) {
-      qb.andWhere('ic.date BETWEEN :dateFrom AND :dateTo', {
-        dateFrom: query.dateFrom,
-        dateTo: query.dateTo,
-      });
+    // Pending debts are listed whole: settling a debt sums every pending row,
+    // and the set shrinks as debts get paid. Every other list is date-bounded.
+    const listsAllPending =
+      query.status === InternalConsumptionStatus.PENDING_PAYMENT &&
+      !query.dateFrom &&
+      !query.dateTo;
+    if (!listsAllPending) {
+      const { from, to } = resolveListDateRange(query.dateFrom, query.dateTo);
+      qb.andWhere('ic.date BETWEEN :dateFrom AND :dateTo', { dateFrom: from, dateTo: to });
     }
 
     return qb.orderBy('ic.createdAt', 'DESC').getMany();
