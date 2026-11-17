@@ -268,6 +268,38 @@ El proyecto usa **ESLint flat config** (`eslint.config.mjs`) integrado con Prett
 
 `scripts/deploy.sh` lo usa como health check (exige 200) y es el endpoint a consultar desde PM2, Nginx o un monitor externo.
 
+### Backups y restauración
+
+`scripts/backup-db.sh` hace `pg_dump -Fc` con los datos de conexión del `.env`, verifica el dump con `pg_restore --list` y borra los dumps locales más viejos que `BACKUP_RETENTION_DAYS` (14 por defecto). Requiere `postgresql-client` en el servidor.
+
+| Variable                | Default                | Uso                                                      |
+| ----------------------- | ---------------------- | -------------------------------------------------------- |
+| `BACKUP_DIR`            | `$HOME/backups/padelsys` | Carpeta local de los dumps (permisos 700)              |
+| `BACKUP_RETENTION_DAYS` | `14`                   | Días de dumps locales que se conservan                   |
+| `BACKUP_OFFSITE_REMOTE` | vacío                  | Destino `rclone` para la copia fuera del VPS (ej. `b2:padelsys-backups`) |
+
+Sin `BACKUP_OFFSITE_REMOTE` el dump queda solo en el VPS y el script lo avisa: si se pierde el disco, se pierde el backup. Configurá un remoto con `rclone config` y aplicá la retención del lado del bucket.
+
+**Backup diario** (crontab del usuario de deploy):
+
+```bash
+30 3 * * * BACKUP_OFFSITE_REMOTE=b2:padelsys-backups bash /home/deploy/padel-backend/scripts/backup-db.sh >> /home/deploy/backups/backup.log 2>&1
+```
+
+**Antes de cada deploy**: `scripts/deploy.sh` corre el backup (sufijo `predeploy`) antes de las migraciones y aborta si falla. `SKIP_BACKUP=1` lo saltea.
+
+**Restaurar** (siempre en una base vacía; el script se niega si ya tiene tablas):
+
+```bash
+pm2 stop padel-backend                        # sin escrituras durante la restauración
+createdb -U <DB_USERNAME> -h <DB_HOST> padelsys_restore
+bash scripts/restore-db.sh ~/backups/padelsys/<archivo>.dump padelsys_restore
+# Revisar los datos; si están bien, apuntar DB_DATABASE=padelsys_restore en .env
+pm2 restart padel-backend --update-env
+```
+
+Probado contra Postgres 15 con la base migrada y el seed: los conteos de la base restaurada coinciden con los de la original y `typeorm_migrations` conserva las 30 migraciones.
+
 ---
 
 ## Módulos y endpoints

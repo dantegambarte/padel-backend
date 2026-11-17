@@ -13,6 +13,8 @@
 #    HEALTH_URL   URL that must answer 200            (default: http://127.0.0.1:3002/api/v1/health)
 #    SKIP_PULL=1  deploy the current checkout without fetching
 #    SKIP_PM2=1   stop after migrations (no PM2 restart, no health check)
+#    SKIP_BACKUP=1  skip the pre-migration database dump (not recommended)
+#    BACKUP_*     forwarded to scripts/backup-db.sh (see that file)
 #
 #  Prerequisites:
 #    - Node.js 20+ and pnpm (corepack enable pnpm, as root)
@@ -34,6 +36,7 @@ PM2_APP="${PM2_APP:-padel-backend}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:3002/api/v1/health}"
 SKIP_PULL="${SKIP_PULL:-0}"
 SKIP_PM2="${SKIP_PM2:-0}"
+SKIP_BACKUP="${SKIP_BACKUP:-0}"
 
 fail() {
   echo -e "${RED}Error: $1${NC}" >&2
@@ -54,6 +57,9 @@ PNPM_MAJOR="$(pnpm --version | cut -d. -f1)"
 if [ "$SKIP_PM2" != "1" ]; then
   command -v pm2 > /dev/null 2>&1 || fail "pm2 is not installed for user $(whoami)."
   [ -f "$APP_DIR/$PM2_CONFIG" ] || fail "PM2 config $APP_DIR/$PM2_CONFIG not found."
+fi
+if [ "$SKIP_BACKUP" != "1" ]; then
+  command -v pg_dump > /dev/null 2>&1 || fail "pg_dump is not installed (apt install postgresql-client), or set SKIP_BACKUP=1."
 fi
 cd "$APP_DIR"
 if [ "$SKIP_PULL" != "1" ] && [ -n "$(git status --porcelain --untracked-files=no)" ]; then
@@ -88,6 +94,12 @@ echo -e "${GREEN}✓ Build ready in dist/${NC}"
 
 # ── 5. Migrations ────────────────────────────────────────
 echo -e "\n${YELLOW}[5/6] Running database migrations...${NC}"
+if [ "$SKIP_BACKUP" = "1" ]; then
+  echo "SKIP_BACKUP=1: no pre-migration dump"
+else
+  BACKUP_FILE="$(BACKUP_LABEL=predeploy APP_DIR="$APP_DIR" bash "$APP_DIR/scripts/backup-db.sh" | tail -n 1)"
+  echo -e "${GREEN}✓ Pre-migration backup: $BACKUP_FILE${NC}"
+fi
 pnpm run migration:run
 echo -e "${GREEN}✓ Migrations applied${NC}"
 
