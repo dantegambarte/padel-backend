@@ -5,7 +5,21 @@ import { APP_GUARD, MetadataScanner, Reflector } from '@nestjs/core';
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { RequestMethod } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
-import { AppModule } from './app.module';
+
+// AppModule validates the environment when it is imported, and CI unit tests
+// run without a .env file. Placeholders keep the import from throwing; this
+// spec only reads module metadata and never connects to anything.
+const PLACEHOLDER_ENV: Record<string, string> = {
+  DB_HOST: 'localhost',
+  DB_USERNAME: 'placeholder',
+  DB_PASSWORD: 'placeholder',
+  DB_DATABASE: 'placeholder',
+  JWT_SECRET: 'placeholder-secret-placeholder-secret-0001',
+  JWT_REFRESH_SECRET: 'placeholder-secret-placeholder-secret-0002',
+};
+for (const [key, value] of Object.entries(PLACEHOLDER_ENV)) process.env[key] ??= value;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { AppModule } = require('./app.module') as { AppModule: Type };
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { IS_PUBLIC_KEY } from './common/decorators/public.decorator';
