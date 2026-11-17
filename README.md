@@ -209,8 +209,22 @@ pnpm run start:dev
 
 ```bash
 pnpm run build
-pm2 start ecosystem.config.js
+pm2 start ecosystem.config.cjs
 ```
+
+> **Rate limiting y PM2:** `ThrottlerModule` usa el storage en memoria por defecto. Esto es válido solo porque `ecosystem.config.cjs` ejecuta un único proceso (`instances: 1`, `exec_mode: 'fork'`): los contadores se reinician en cada deploy y no se comparten entre procesos. Para escalar a más instancias de PM2 (o modo cluster) hay que mover el storage del throttler a un store compartido (Redis).
+
+#### Nginx
+
+`nginx/padelsys.conf` es una plantilla: el dominio real no se versiona. Se renderiza en el VPS con `envsubst`, indicando explícitamente la variable para no reemplazar las de nginx (`$host`, `$uri`, etc.):
+
+```bash
+export DOMAIN=example.com
+envsubst '${DOMAIN}' < nginx/padelsys.conf > /etc/nginx/sites-available/padelsys
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+La configuración incluye HSTS (`max-age=31536000; includeSubDomains`) y `limit_req` de 10 req/min por IP (burst 5, respuesta 429) en `/api/v1/auth/login` y `/api/v1/auth/refresh`.
 
 ### Migraciones
 
