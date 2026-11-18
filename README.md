@@ -281,14 +281,54 @@ El proyecto usa **ESLint flat config** (`eslint.config.mjs`) integrado con Prett
 
 ### Monitoreo
 
-`GET /api/v1/health` es público (sin token) y no tiene rate limiting. Ejecuta `SELECT 1` contra Postgres con un timeout de 2 s:
+Endpoints públicos (sin token) y sin rate limiting:
+
+| Endpoint                  | Qué verifica                                  | Uso                              |
+| ------------------------- | --------------------------------------------- | -------------------------------- |
+| `GET /api/v1/health/live` | Solo que el proceso responde (`{ "status": "ok" }`) | Liveness (PM2, monitor externo) |
+| `GET /api/v1/health/ready`| `SELECT 1` contra Postgres, timeout de 2 s    | Readiness (deploy, balanceador)  |
+| `GET /api/v1/health`      | Alias de `/health/ready` (compatibilidad)     | —                                |
+
+Respuestas de readiness:
 
 | Estado      | HTTP | Body                                  |
 | ----------- | ---- | ------------------------------------- |
 | Base arriba | 200  | `{ "status": "ok", "db": "up" }`      |
 | Base caída  | 503  | `{ "status": "error", "db": "down" }` |
 
-`scripts/deploy.sh` lo usa como health check (exige 200) y es el endpoint a consultar desde PM2, Nginx o un monitor externo.
+`scripts/deploy.sh` exige 200 en `/health/ready`.
+
+### Deploy y rollback
+
+`scripts/deploy.sh` publica releases inmutables y cambia el release activo de forma atómica:
+
+```
+$DEPLOY_ROOT/
+  repo/              clon git usado solo para exportar el código
+  releases/<sha>/    un directorio por commit desplegado
+  shared/.env        secretos, enlazado dentro de cada release
+  current -> releases/<sha>
+```
+
+1. Exporta el commit (`git archive`) a `releases/.staging-<sha>`, instala dependencias y copia `dist/` desde el artefacto de CI (`--artifact <ruta|URL>`, job **Build artifact** en `main`) o, si no se pasa, compila **dentro del release nuevo** (nunca en el directorio en uso).
+2. Backup previo (`predeploy`) y `migration:run` desde el release nuevo.
+3. Cambia `current` con `ln -sfn` a un symlink temporal + `mv -T` (rename atómico) y hace `pm2 startOrReload`. `ecosystem.config.cjs` usa `APP_CURRENT_DIR` (= `current`) como `cwd`.
+4. Verifica `/health/ready`. Si falla, **vuelve `current` al release anterior y recarga PM2 automáticamente**, y termina con error.
+5. Conserva los últimos `KEEP_RELEASES` (5 por defecto, nunca borra el activo ni el anterior).
+
+```bash
+# primera vez: REPO_URL=<url-del-repo> DEPLOY_ROOT=<dir> bash scripts/deploy.sh
+bash "$DEPLOY_ROOT/current/scripts/deploy.sh" --artifact dist-<sha>.tar.gz
+```
+
+Rollback manual a cualquier release conservado:
+
+```bash
+ln -sfn "$DEPLOY_ROOT/releases/<sha>" "$DEPLOY_ROOT/.current.tmp" && mv -T "$DEPLOY_ROOT/.current.tmp" "$DEPLOY_ROOT/current"
+cd "$DEPLOY_ROOT/current" && APP_CURRENT_DIR="$DEPLOY_ROOT/current" pm2 startOrReload ecosystem.config.cjs --update-env
+```
+
+El rollback no revierte migraciones: si el problema es una migración, restaurar el dump `predeploy` (ver abajo).
 
 ### Backups y restauración
 
