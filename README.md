@@ -11,7 +11,9 @@ Sistema integral de gestión para canchas de pádel. Construido con **NestJS**, 
 3. [Estructura de carpetas](#estructura-de-carpetas)
 4. [Variables de entorno](#variables-de-entorno)
 5. [Levantar el proyecto](#levantar-el-proyecto)
-6. [Módulos y endpoints](#módulos-y-endpoints)
+6. [Datos personales y retención](#datos-personales-y-retención)
+7. [Licencia](#licencia)
+8. [Módulos y endpoints](#módulos-y-endpoints)
    - [Auth](#auth)
    - [Users](#users)
    - [Courts](#courts)
@@ -27,10 +29,10 @@ Sistema integral de gestión para canchas de pádel. Construido con **NestJS**, 
    - [Reminders (Recordatorios)](#reminders-recordatorios)
    - [Expenses (Egresos)](#expenses-egresos)
    - [System Config](#system-config)
-7. [Modelo de datos](#modelo-de-datos)
-8. [Seguridad y autenticación](#seguridad-y-autenticación)
-9. [Patrones arquitectónicos clave](#patrones-arquitectónicos-clave)
-10. [Documentación Swagger](#documentación-swagger)
+9. [Modelo de datos](#modelo-de-datos)
+10. [Seguridad y autenticación](#seguridad-y-autenticación)
+11. [Patrones arquitectónicos clave](#patrones-arquitectónicos-clave)
+12. [Documentación Swagger](#documentación-swagger)
 
 ---
 
@@ -190,6 +192,9 @@ JWT_REFRESH_EXPIRES_IN=7d
 LOG_FORMAT=
 # Webhook que recibe una alerta JSON por cada error 5xx no controlado; vacío = desactivado
 ERROR_WEBHOOK_URL=
+
+# Privacidad: días que un turno fijo o profesor inactivo conserva el teléfono
+CUSTOMER_PHONE_RETENTION_DAYS=365
 ```
 
 En producción los logs salen como JSON (una línea por evento). Todo error 5xx no controlado pasa por `ErrorReporter` (`src/common/error-reporting`): se loguea y, si `ERROR_WEBHOOK_URL` está definido, se envía una alerta. Para usar Sentry u otro servicio basta con registrar otra implementación de `ErrorReporter` en `ErrorReportingModule`. El cron de recordatorios solo loguea IDs de reserva, nunca nombre ni teléfono del cliente.
@@ -361,6 +366,32 @@ pm2 restart padel-backend --update-env
 ```
 
 Probado contra Postgres 15 con la base migrada y el seed: los conteos de la base restaurada coinciden con los de la original y `typeorm_migrations` conserva las 30 migraciones.
+
+---
+
+## Datos personales y retención
+
+| Tabla | Campo | Finalidad | Retención |
+| --- | --- | --- | --- |
+| `fixed_bookings` | `client_name`, `phone_number` | Identificar al titular del turno fijo y enviarle recordatorios | Teléfono: se borra (`NULL`) cuando el turno está inactivo y sin cambios por más de `CUSTOMER_PHONE_RETENTION_DAYS` (365 por defecto). Nombre: hasta borrado a pedido |
+| `bookings` | `client_name` | Mostrar quién reservó la cancha; histórico de caja y reportes | Hasta borrado a pedido (solo turnos generados por un turno fijo) |
+| `teachers` | `full_name`, `phone_number` | Contacto y liquidación de profesores | Teléfono: igual que turnos fijos (profesor inactivo). Nombre: se conserva por las liquidaciones |
+| `users` | `username`, `full_name`, contraseña hasheada | Acceso del personal al sistema | Mientras la cuenta exista |
+
+El cron diario de las 4 AM (`PrivacyCronService`) aplica la retención y solo loguea cantidades. Los turnos fijos y profesores activos conservan el teléfono porque los recordatorios lo usan.
+
+**Pedidos del titular** (solo `ADMIN`; el teléfono va en el body para que no quede en los logs de acceso; se compara solo por dígitos):
+
+| Método | Ruta | Descripción |
+| --- | --- | --- |
+| `POST` | `/privacy/customers/export` | `{ "phone": "..." }` → devuelve los turnos fijos y profesores con ese teléfono |
+| `POST` | `/privacy/customers/erase` | `{ "phone": "..." }` → borra el teléfono en todas las tablas y reemplaza el nombre por `Anonymized` en los turnos fijos y sus reservas generadas |
+
+Los backups (`BACKUP_RETENTION_DAYS`) pueden contener datos borrados hasta que roten.
+
+## Licencia
+
+Software propietario, todos los derechos reservados. El código es visible pero no puede usarse, copiarse, modificarse, distribuirse ni desplegarse sin permiso escrito previo. Ver [LICENSE](LICENSE).
 
 ---
 
