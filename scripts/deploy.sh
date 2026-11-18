@@ -200,11 +200,14 @@ is_ready() {
 # ── 5. Switch and reload ─────────────────────────────────
 echo -e "\n${YELLOW}[5/7] Switching current and reloading PM2...${NC}"
 switch_current "$RELEASE_DIR"
-reload_pm2 || true
+# A failed reload leaves the old process serving, and the readiness probe
+# cannot tell releases apart, so treat it as a failed deploy and roll back.
+RELOAD_OK=1
+reload_pm2 || RELOAD_OK=0
 
 # ── 6. Readiness check / automatic rollback ──────────────
 echo -e "\n${YELLOW}[6/7] Checking readiness ($HEALTH_URL)...${NC}"
-if ! is_ready; then
+if [ "$RELOAD_OK" != 1 ] || ! is_ready; then
   echo -e "${RED}New release is not ready.${NC}" >&2
   if [ -n "$PREVIOUS_RELEASE" ] && [ -d "$PREVIOUS_RELEASE" ]; then
     echo -e "${YELLOW}Rolling back to $PREVIOUS_RELEASE...${NC}" >&2
