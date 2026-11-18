@@ -44,6 +44,10 @@ import { HealthModule } from './modules/health/health.module';
   imports: [
     ScheduleModule.forRoot(),
 
+    // In-memory throttler storage is valid ONLY because production runs a
+    // single process (ecosystem.config.cjs: instances: 1, exec_mode: 'fork').
+    // Counters reset on restart and are not shared between processes: scaling
+    // PM2 instances (or cluster mode) requires a shared store such as Redis.
     ThrottlerModule.forRoot([
       {
         name: 'default',

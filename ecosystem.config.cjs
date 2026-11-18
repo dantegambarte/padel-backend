@@ -21,6 +21,9 @@ module.exports = {
       script: 'dist/main.js',
       cwd: __dirname,
 
+      // Keep a single process: ThrottlerModule (src/app.module.ts) uses
+      // in-memory storage. More instances or cluster mode would split rate
+      // limit counters per process; move the throttler to Redis first.
       instances: 1,
       exec_mode: 'fork',
 
