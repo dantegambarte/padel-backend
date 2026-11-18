@@ -16,6 +16,14 @@ export const envValidationSchema = Joi.object({
   // Local e2e only; honored only when NODE_ENV is test or development (see config/throttle-limits.ts).
   E2E_RELAX_THROTTLE: Joi.string().valid('0', '1').optional(),
 
+  // Logging: JSON by default in production; override with json|pretty.
+  LOG_FORMAT: Joi.string().valid('json', 'pretty').allow('').optional(),
+  // Optional alert sink for unhandled errors (e.g. a Slack/Discord webhook). Unset = disabled.
+  ERROR_WEBHOOK_URL: Joi.string()
+    .uri({ scheme: ['https', 'http'] })
+    .allow('')
+    .optional(),
+
   PORT: Joi.number().port().default(3000),
 
   DB_HOST: Joi.string().required().messages({

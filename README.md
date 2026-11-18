@@ -184,7 +184,15 @@ JWT_SECRET=<mínimo 32 caracteres>
 JWT_EXPIRES_IN=8h
 JWT_REFRESH_SECRET=<mínimo 32 caracteres, diferente al anterior>
 JWT_REFRESH_EXPIRES_IN=7d
+
+# Logging y errores (opcionales)
+# json | pretty (por defecto json con NODE_ENV=production)
+LOG_FORMAT=
+# Webhook que recibe una alerta JSON por cada error 5xx no controlado; vacío = desactivado
+ERROR_WEBHOOK_URL=
 ```
+
+En producción los logs salen como JSON (una línea por evento). Todo error 5xx no controlado pasa por `ErrorReporter` (`src/common/error-reporting`): se loguea y, si `ERROR_WEBHOOK_URL` está definido, se envía una alerta. Para usar Sentry u otro servicio basta con registrar otra implementación de `ErrorReporter` en `ErrorReportingModule`. El cron de recordatorios solo loguea IDs de reserva, nunca nombre ni teléfono del cliente.
 
 ---
 
