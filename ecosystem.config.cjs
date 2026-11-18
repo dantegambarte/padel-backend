@@ -19,7 +19,9 @@ module.exports = {
     {
       name: 'padel-backend',
       script: 'dist/main.js',
-      cwd: __dirname,
+      // Release layout: scripts/deploy.sh sets APP_CURRENT_DIR to the `current`
+      // symlink so reloads follow it (__dirname resolves to releases/<sha>).
+      cwd: process.env.APP_CURRENT_DIR || __dirname,
 
       // Keep a single process: ThrottlerModule (src/app.module.ts) uses
       // in-memory storage. More instances or cluster mode would split rate

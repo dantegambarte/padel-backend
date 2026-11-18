@@ -30,4 +30,21 @@ describe('HealthController', () => {
     expect(body).toEqual({ status: 'error', db: 'down' });
     expect(res.status).toHaveBeenCalledWith(HttpStatus.SERVICE_UNAVAILABLE);
   });
+
+  it('liveness responde 200 { status: ok } sin consultar la base', () => {
+    expect(controller.live()).toEqual({ status: 'ok' });
+    expect(healthService.isDatabaseUp).not.toHaveBeenCalled();
+  });
+
+  it('readiness responde 200 { status: ok, db: up } con la base arriba', async () => {
+    healthService.isDatabaseUp.mockResolvedValue(true);
+    expect(await controller.ready(res as never)).toEqual({ status: 'ok', db: 'up' });
+    expect(res.status).toHaveBeenCalledWith(HttpStatus.OK);
+  });
+
+  it('readiness responde 503 { status: error, db: down } con la base caida', async () => {
+    healthService.isDatabaseUp.mockResolvedValue(false);
+    expect(await controller.ready(res as never)).toEqual({ status: 'error', db: 'down' });
+    expect(res.status).toHaveBeenCalledWith(HttpStatus.SERVICE_UNAVAILABLE);
+  });
 });
