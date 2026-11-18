@@ -12,6 +12,7 @@ import { THROTTLE_LIMITS } from './config/throttle-limits';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { ErrorReportingModule } from './common/error-reporting/error-reporting.module';
 
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
@@ -42,6 +43,7 @@ import { HealthModule } from './modules/health/health.module';
 
 @Module({
   imports: [
+    ErrorReportingModule,
     ScheduleModule.forRoot(),
 
     // In-memory throttler storage is valid ONLY because production runs a

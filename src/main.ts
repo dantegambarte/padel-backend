@@ -1,14 +1,26 @@
 import { NestFactory, Reflector } from '@nestjs/core';
-import { ValidationPipe, ClassSerializerInterceptor, Logger } from '@nestjs/common';
+import { ValidationPipe, ClassSerializerInterceptor, ConsoleLogger, Logger } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import * as cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { THROTTLE_LIMITS } from './config/throttle-limits';
+import { ErrorReporter } from './common/error-reporting/error-reporter';
+import { useJsonLogs } from './config/logging';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    logger: new ConsoleLogger({ json: useJsonLogs(process.env) }),
+  });
+  const logger = new Logger('Bootstrap');
+
+  // Errors outside the HTTP pipeline still reach the reporter. The monitor only observes:
+  // the process still crashes (and PM2 restarts it); unhandled rejections arrive here too.
+  const errorReporter = app.get(ErrorReporter);
+  process.on('uncaughtExceptionMonitor', (error) =>
+    errorReporter.report(error, { source: 'uncaughtException' }),
+  );
 
   app.use(helmet());
   // Parses the HttpOnly refresh_token cookie read by POST /auth/refresh.
@@ -60,7 +72,7 @@ async function bootstrap() {
 
     const document = SwaggerModule.createDocument(app, config);
     SwaggerModule.setup('api/docs', app, document);
-    console.log(`📖 Swagger docs: http://localhost:${process.env.PORT || 3000}/api/docs`);
+    logger.log(`Swagger docs: http://localhost:${process.env.PORT || 3000}/api/docs`);
   }
 
   const port = process.env.PORT || 3000;
@@ -72,7 +84,7 @@ async function bootstrap() {
   }
 
   await app.listen(port, host);
-  console.log(`🚀 PadelSys API corriendo en: http://localhost:${port}/api/v1`);
+  logger.log(`PadelSys API listening on: http://localhost:${port}/api/v1`);
 }
 
 bootstrap();

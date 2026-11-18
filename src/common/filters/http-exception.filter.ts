@@ -8,6 +8,8 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 
+import { ErrorReporter } from '../error-reporting/error-reporter';
+
 /**
  * Filtro global de excepciones.
  * Captura TODOS los errores (HttpException + errores no controlados como DB errors).
@@ -25,6 +27,8 @@ import { Request, Response } from 'express';
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(HttpExceptionFilter.name);
+
+  constructor(private readonly errorReporter: ErrorReporter) {}
 
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
@@ -55,6 +59,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
         `[${request.method}] ${request.url} → ${status}`,
         exception instanceof Error ? exception.stack : String(exception),
       );
+      this.errorReporter.report(exception, { method: request.method, path: request.url });
     } else if (status >= 400 && status !== Number(HttpStatus.UNAUTHORIZED)) {
       this.logger.warn(
         `[${request.method}] ${request.url} → ${status} | ${JSON.stringify(message)}`,

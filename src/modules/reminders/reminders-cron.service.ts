@@ -37,7 +37,7 @@ export class RemindersCronService {
         if (this.alerted24h.has(item.bookingId)) continue;
         this.alerted24h.add(item.bookingId);
         this.logger.log(
-          `[24h] [${timestamp}] ${item.clientName} — ${item.hour}hs en ${item.courtName} | ${item.date} | Tel: ${item.phoneNumber ?? 'sin número'}`,
+          `[24h] [${timestamp}] Reminder due for booking ${item.bookingId} (${item.date} ${item.hour}hs)`,
         );
       }
 
@@ -45,7 +45,7 @@ export class RemindersCronService {
         if (this.alertedSameDay.has(item.bookingId)) continue;
         this.alertedSameDay.add(item.bookingId);
         this.logger.log(
-          `[HOY] [${timestamp}] ${item.clientName} — ${item.hour}hs en ${item.courtName} | Tel: ${item.phoneNumber ?? 'sin número'}`,
+          `[HOY] [${timestamp}] Reminder due for booking ${item.bookingId} (${item.hour}hs)`,
         );
       }
     } catch (err) {
