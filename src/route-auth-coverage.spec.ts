@@ -28,7 +28,13 @@ import { IS_PUBLIC_KEY } from './common/decorators/public.decorator';
  * Routes that are deliberately reachable without a JWT. Adding a route here is a
  * security decision: it must also carry @Public() in its controller.
  */
-const EXPECTED_PUBLIC_ROUTES = ['GET /health', 'POST /auth/login', 'POST /auth/refresh'];
+const EXPECTED_PUBLIC_ROUTES = [
+  'GET /health',
+  'GET /health/live',
+  'GET /health/ready',
+  'POST /auth/login',
+  'POST /auth/refresh',
+];
 
 function findControllerFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
