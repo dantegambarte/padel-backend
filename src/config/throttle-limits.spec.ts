@@ -3,7 +3,7 @@ import { isThrottleRelaxed, resolveThrottleLimits, THROTTLE_LIMITS } from './thr
 import { AuthController } from '../modules/auth/auth.controller';
 import { SearchController } from '../modules/search/search.controller';
 
-const PRODUCTION_LIMITS = { relaxed: false, global: 60, search: 30, login: 5 };
+const PRODUCTION_LIMITS = { relaxed: false, global: 60, search: 30, login: 5, refresh: 20 };
 
 describe('throttle limits', () => {
   it('uses production limits when the relax flag is not set, whatever NODE_ENV is', () => {
@@ -18,6 +18,7 @@ describe('throttle limits', () => {
       global: 10_000,
       search: 1000,
       login: 1000,
+      refresh: 1000,
     });
     expect(isThrottleRelaxed({ NODE_ENV: 'development', E2E_RELAX_THROTTLE: '1' })).toBe(true);
   });
@@ -48,6 +49,10 @@ describe('throttle limits', () => {
 
     it('limits POST /auth/login to 5 per minute', () => {
       expect(limitOf(AuthController.prototype.login)).toBe(5);
+    });
+
+    it('limits POST /auth/refresh to 20 per minute', () => {
+      expect(limitOf(AuthController.prototype.refresh)).toBe(20);
     });
 
     it('limits GET /search to 30 per minute', () => {

@@ -26,6 +26,8 @@ export function resolveThrottleLimits(env: Env = process.env) {
     search: relaxed ? 1000 : 30,
     /** Requests per minute per IP on POST /auth/login. */
     login: relaxed ? 1000 : 5,
+    /** Requests per minute per IP on POST /auth/refresh (every page load calls it). */
+    refresh: relaxed ? 1000 : 20,
   };
 }
 

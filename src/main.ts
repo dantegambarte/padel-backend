@@ -3,6 +3,7 @@ import { ValidationPipe, ClassSerializerInterceptor, Logger } from '@nestjs/comm
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
+import * as cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { THROTTLE_LIMITS } from './config/throttle-limits';
 
@@ -10,6 +11,8 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   app.use(helmet());
+  // Parses the HttpOnly refresh_token cookie read by POST /auth/refresh.
+  app.use(cookieParser());
 
   // Explicit body limits (same as Express defaults) so a change is a visible decision.
   app.useBodyParser('json', { limit: '100kb' });
@@ -52,6 +55,7 @@ async function bootstrap() {
       .setDescription('Sistema de Gestión para Club de Pádel')
       .setVersion('1.0')
       .addBearerAuth()
+      .addCookieAuth('refresh_token')
       .build();
 
     const document = SwaggerModule.createDocument(app, config);
