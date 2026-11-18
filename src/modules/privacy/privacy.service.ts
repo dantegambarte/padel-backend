@@ -92,9 +92,10 @@ export class PrivacyService {
     const digits = toDigits(phone);
     const matches = await this.fixedBookings
       .createQueryBuilder()
-      .select('id')
+      .select('id', 'id')
       .where(PHONE_DIGITS_SQL, { digits })
-      .getMany();
+      // Raw rows: getMany would hydrate nothing without the aliased primary key.
+      .getRawMany<{ id: string }>();
     const ids = matches.map((m) => m.id);
 
     const fixed = await this.fixedBookings

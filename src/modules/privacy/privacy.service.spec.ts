@@ -9,6 +9,7 @@ function makeQb(result: unknown): QB {
   }
   qb.execute = jest.fn().mockResolvedValue(result);
   qb.getMany = jest.fn().mockResolvedValue(result);
+  qb.getRawMany = jest.fn().mockResolvedValue(result);
   return qb;
 }
 
@@ -85,6 +86,9 @@ describe('PrivacyService', () => {
       const result = await service.eraseByPhone('11-5555');
 
       expect(result).toEqual({ fixedBookings: 2, teachers: 1, bookings: 5 });
+      expect(fixedQb.select).toHaveBeenCalledWith('id', 'id');
+      expect(fixedQb.getRawMany).toHaveBeenCalled();
+      expect(fixedQb.getMany).not.toHaveBeenCalled();
       expect(fixedQb.set).toHaveBeenCalledWith({ phoneNumber: null, clientName: ANONYMIZED_NAME });
       expect(teacherQb.set).toHaveBeenCalledWith({ phoneNumber: null });
       expect(bookingQb.set).toHaveBeenCalledWith({ clientName: ANONYMIZED_NAME });
