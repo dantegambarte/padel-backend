@@ -37,3 +37,21 @@ describe('envValidationSchema — database pool', () => {
     expect(error?.message).toContain('DB_STATEMENT_TIMEOUT_MS');
   });
 });
+
+describe('envValidationSchema — customer phone retention', () => {
+  it('defaults CUSTOMER_PHONE_RETENTION_DAYS to 365', () => {
+    const { value, error } = envValidationSchema.validate(REQUIRED);
+
+    expect(error).toBeUndefined();
+    expect(value.CUSTOMER_PHONE_RETENTION_DAYS).toBe(365);
+  });
+
+  it('rejects a retention below one day', () => {
+    const { error } = envValidationSchema.validate({
+      ...REQUIRED,
+      CUSTOMER_PHONE_RETENTION_DAYS: 0,
+    });
+
+    expect(error?.message).toContain('CUSTOMER_PHONE_RETENTION_DAYS');
+  });
+});

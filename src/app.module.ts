@@ -40,6 +40,7 @@ import { PricingShiftsModule } from './modules/pricing-shifts/pricing-shifts.mod
 
 import { SearchModule } from './modules/search/search.module';
 import { HealthModule } from './modules/health/health.module';
+import { PrivacyModule } from './modules/privacy/privacy.module';
 
 @Module({
   imports: [
@@ -90,6 +91,7 @@ import { HealthModule } from './modules/health/health.module';
     PricingShiftsModule,
     SearchModule,
     HealthModule,
+    PrivacyModule,
   ],
   providers: [
     {

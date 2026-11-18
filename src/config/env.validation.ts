@@ -59,4 +59,8 @@ export const envValidationSchema = Joi.object({
   JWT_REFRESH_EXPIRES_IN: Joi.string().default('7d'),
 
   CORS_ORIGIN: Joi.string().uri().default('http://localhost:4200'),
+
+  // Days an inactive fixed booking or teacher keeps its phone number before the
+  // daily privacy cron nulls it (see modules/privacy).
+  CUSTOMER_PHONE_RETENTION_DAYS: Joi.number().integer().min(1).max(3650).default(365),
 });
