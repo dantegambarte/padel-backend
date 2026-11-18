@@ -23,6 +23,13 @@ export const envValidationSchema = Joi.object({
     .uri({ scheme: ['https', 'http'] })
     .allow('')
     .optional(),
+  // Optional Sentry error monitoring. Unset/empty DSN = disabled (nothing is sent).
+  SENTRY_DSN: Joi.string()
+    .uri({ scheme: ['https', 'http'] })
+    .allow('')
+    .optional(),
+  SENTRY_ENVIRONMENT: Joi.string().allow('').optional(),
+  SENTRY_RELEASE: Joi.string().allow('').optional(),
 
   PORT: Joi.number().port().default(3000),
 

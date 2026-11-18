@@ -9,6 +9,7 @@ import {
 import { Request, Response } from 'express';
 
 import { ErrorReporter } from '../error-reporting/error-reporter';
+import { getRequestId } from '../logging/request-context';
 
 /**
  * Filtro global de excepciones.
@@ -54,12 +55,18 @@ export class HttpExceptionFilter implements ExceptionFilter {
       message = 'Ha ocurrido un error interno. Por favor, contacte al administrador.';
     }
 
+    const requestId = getRequestId();
+
     if (status >= Number(HttpStatus.INTERNAL_SERVER_ERROR)) {
       this.logger.error(
         `[${request.method}] ${request.url} → ${status}`,
         exception instanceof Error ? exception.stack : String(exception),
       );
-      this.errorReporter.report(exception, { method: request.method, path: request.url });
+      this.errorReporter.report(exception, {
+        method: request.method,
+        path: request.url,
+        ...(requestId ? { requestId } : {}),
+      });
     } else if (status >= 400 && status !== Number(HttpStatus.UNAUTHORIZED)) {
       this.logger.warn(
         `[${request.method}] ${request.url} → ${status} | ${JSON.stringify(message)}`,
@@ -73,6 +80,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       message,
     };
     if (errorCode) body['errorCode'] = errorCode;
+    if (requestId) body['requestId'] = requestId;
 
     response.status(status).json(body);
   }
