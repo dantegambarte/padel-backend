@@ -192,12 +192,16 @@ JWT_REFRESH_EXPIRES_IN=7d
 LOG_FORMAT=
 # Webhook que recibe una alerta JSON por cada error 5xx no controlado; vacío = desactivado
 ERROR_WEBHOOK_URL=
+# Sentry (opcional): sin DSN no se envía nada
+SENTRY_DSN=
+SENTRY_ENVIRONMENT=   # por defecto NODE_ENV
+SENTRY_RELEASE=       # p. ej. el SHA desplegado
 
 # Privacidad: días que un turno fijo o profesor inactivo conserva el teléfono
 CUSTOMER_PHONE_RETENTION_DAYS=365
 ```
 
-En producción los logs salen como JSON (una línea por evento). Todo error 5xx no controlado pasa por `ErrorReporter` (`src/common/error-reporting`): se loguea y, si `ERROR_WEBHOOK_URL` está definido, se envía una alerta. Para usar Sentry u otro servicio basta con registrar otra implementación de `ErrorReporter` en `ErrorReportingModule`. El cron de recordatorios solo loguea IDs de reserva, nunca nombre ni teléfono del cliente.
+En producción los logs salen como JSON (una línea por evento). Todo error 5xx no controlado pasa por `ErrorReporter` (`src/common/error-reporting`): se loguea y, si `ERROR_WEBHOOK_URL` está definido, se envía una alerta. Si `SENTRY_DSN` está definido, los errores también se envían a Sentry (sin datos de usuario, cookies, headers, bodies ni query strings; `beforeSend` aplica la redacción). Cada request lleva un `X-Request-Id` (se respeta el entrante si es seguro: `[A-Za-z0-9._-]`, hasta 128 caracteres; si no, se genera un UUID) que se devuelve en la respuesta y aparece en los logs JSON, en los reportes de error y en el cuerpo de las respuestas de error (`requestId`). Logs y reportes pasan por `redact()` (`src/common/logging/redact.ts`): contraseñas, tokens, cookies, teléfonos y emails se reemplazan por `[REDACTED]`. El cron de recordatorios solo loguea IDs de reserva, nunca nombre ni teléfono del cliente.
 
 ---
 

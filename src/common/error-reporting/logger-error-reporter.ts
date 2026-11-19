@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 
+import { redact, redactString } from '../logging/redact';
 import { ErrorContext, ErrorReporter } from './error-reporter';
 
 /**
@@ -15,9 +16,10 @@ export class LoggerErrorReporter extends ErrorReporter {
     super();
   }
 
-  report(error: unknown, context: ErrorContext = {}): void {
-    const message = error instanceof Error ? error.message : String(error);
-    const stack = error instanceof Error ? error.stack : undefined;
+  report(error: unknown, rawContext: ErrorContext = {}): void {
+    const context = redact(rawContext) as ErrorContext;
+    const message = redactString(error instanceof Error ? error.message : String(error));
+    const stack = error instanceof Error && error.stack ? redactString(error.stack) : undefined;
     this.logger.error({ msg: 'Unhandled error', error: message, ...context }, stack);
 
     if (!this.webhookUrl) return;

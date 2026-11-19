@@ -1,6 +1,7 @@
 import { ArgumentsHost, BadRequestException, Logger } from '@nestjs/common';
 
 import { ErrorReporter } from '../error-reporting/error-reporter';
+import { requestContext } from '../logging/request-context';
 import { HttpExceptionFilter } from './http-exception.filter';
 
 function hostFor(): { host: ArgumentsHost; json: jest.Mock } {
@@ -42,5 +43,18 @@ describe('HttpExceptionFilter error reporting', () => {
     filter.catch(new BadRequestException('bad'), host);
 
     expect(reporter.report).not.toHaveBeenCalled();
+  });
+
+  it('adds the request id to the report and the response body', () => {
+    const { host, json } = hostFor();
+
+    requestContext.run({ requestId: 'req-7' }, () => filter.catch(new Error('x'), host));
+
+    expect(reporter.report).toHaveBeenCalledWith(expect.any(Error), {
+      method: 'GET',
+      path: '/api/v1/x',
+      requestId: 'req-7',
+    });
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ requestId: 'req-7' }));
   });
 });

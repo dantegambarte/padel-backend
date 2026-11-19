@@ -1,5 +1,5 @@
 import { NestFactory, Reflector } from '@nestjs/core';
-import { ValidationPipe, ClassSerializerInterceptor, ConsoleLogger, Logger } from '@nestjs/common';
+import { ValidationPipe, ClassSerializerInterceptor, Logger } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
@@ -8,10 +8,12 @@ import { AppModule } from './app.module';
 import { THROTTLE_LIMITS } from './config/throttle-limits';
 import { ErrorReporter } from './common/error-reporting/error-reporter';
 import { useJsonLogs } from './config/logging';
+import { RedactingConsoleLogger } from './common/logging/redacting-console-logger';
+import { requestIdMiddleware } from './common/logging/request-context';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
-    logger: new ConsoleLogger({ json: useJsonLogs(process.env) }),
+    logger: new RedactingConsoleLogger({ json: useJsonLogs(process.env) }),
   });
   const logger = new Logger('Bootstrap');
 
@@ -22,6 +24,8 @@ async function bootstrap() {
     errorReporter.report(error, { source: 'uncaughtException' }),
   );
 
+  // First middleware: every later log line and error report sees the request id.
+  app.use(requestIdMiddleware);
   app.use(helmet());
   // Parses the HttpOnly refresh_token cookie read by POST /auth/refresh.
   app.use(cookieParser());
